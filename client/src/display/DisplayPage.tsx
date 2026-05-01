@@ -13,16 +13,6 @@ export function DisplayPage() {
   const [roomCode, setRoomCode] = useState<string | null>(null);
   const requestedRef = useRef(false);
 
-  // Disconnect socket on unmount. In StrictMode dev, this runs after the first
-  // mount's cleanup, killing the orphan socket from the first useMemo factory
-  // call so we don't accumulate connections.
-  useEffect(() => {
-    return () => {
-      console.log('[display] disconnecting socket', socket.id);
-      socket.disconnect();
-    };
-  }, [socket]);
-
   useEffect(() => {
     if (requestedRef.current) return;
     requestedRef.current = true;
