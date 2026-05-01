@@ -69,6 +69,20 @@ export function PlayPage() {
     return () => { socket.off('phone:state', h); };
   }, [socket]);
 
+  useEffect(() => {
+    const onEnded = () => {
+      clearSession();
+      // Strip ?room= so a refresh doesn't try to rejoin the dead room.
+      window.history.replaceState({}, '', '/play');
+      setRoomCode('');
+      setRole(null);
+      setSnap(null);
+      setError(null);
+    };
+    socket.on('room:ended', onEnded);
+    return () => { socket.off('room:ended', onEnded); };
+  }, [socket]);
+
   if (!roomCode || roomCode.length !== 4 || error) {
     return (
       <form

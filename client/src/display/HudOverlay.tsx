@@ -6,7 +6,12 @@ function modeLabel(m: Mode): string {
   return m === 'in_robot' ? 'in robot' : 'on foot';
 }
 
-export function HudOverlay({ snap }: { snap: DisplaySnapshot }) {
+interface Props {
+  snap: DisplaySnapshot;
+  onResetRoom: () => void;
+}
+
+export function HudOverlay({ snap, onResetRoom }: Props) {
   const x = snap.players.find((p) => p.role === 'X');
   const y = snap.players.find((p) => p.role === 'Y');
 
@@ -24,6 +29,17 @@ export function HudOverlay({ snap }: { snap: DisplaySnapshot }) {
         <div style={{ fontSize: 64, fontWeight: 800 }}>{snap.score}</div>
         <div style={{ fontSize: 14, opacity: 0.5 }}>Room {snap.roomCode}</div>
       </div>
+      <button
+        onClick={onResetRoom}
+        style={{
+          position: 'fixed', bottom: 16, right: 16, pointerEvents: 'auto',
+          padding: '8px 14px', fontSize: 13,
+          background: 'transparent', color: '#888',
+          border: '1px solid #444', borderRadius: 6, cursor: 'pointer',
+        }}
+      >
+        × end game
+      </button>
       {snap.phase === 'paused' && (
         <div style={{
           position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)',

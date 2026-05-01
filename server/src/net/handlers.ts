@@ -40,6 +40,35 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
       cb({ roomCode: room.code });
     });
 
+    socket.on('display:end_room', (cb) => {
+      const data = socket.data as { displayRoomCode?: string } | undefined;
+      const oldCode = data?.displayRoomCode;
+
+      if (oldCode) {
+        const oldRoom = mgr.getRoom(oldCode);
+        if (oldRoom) {
+          io.to(`room:${oldCode}:phones`).emit('room:ended');
+          for (const [pid, s] of socketByPlayerId) {
+            const sd = s.data as { roomCode?: string } | undefined;
+            if (sd?.roomCode === oldCode) {
+              socketByPlayerId.delete(pid);
+              s.data = {};
+              s.leave(`room:${oldCode}:phones`);
+            }
+          }
+          mgr.removeRoom(oldCode);
+        }
+        socket.leave(`room:${oldCode}:display`);
+        log('room', `${oldCode} ended by display`);
+      }
+
+      const room = mgr.createRoom();
+      socket.join(`room:${room.code}:display`);
+      socket.data = { ...(socket.data ?? {}), displayRoomCode: room.code };
+      log('room', `${room.code} created (replacement for ${oldCode ?? 'none'})`);
+      cb({ newRoomCode: room.code });
+    });
+
     socket.on('display:join_room', ({ roomCode }, cb) => {
       const room = mgr.getRoom(roomCode);
       if (!room) {

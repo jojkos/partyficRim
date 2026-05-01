@@ -45,8 +45,10 @@ export function DisplayPage() {
   }, [socket]);
 
   const onResetRoom = () => {
-    localStorage.removeItem(STORAGE_KEY);
-    window.location.reload();
+    socket.emit('display:end_room', ({ newRoomCode }) => {
+      localStorage.setItem(STORAGE_KEY, newRoomCode);
+      setRoomCode(newRoomCode);
+    });
   };
 
   if (!snap || snap.phase === 'lobby' || snap.phase === 'countdown') {
@@ -55,7 +57,7 @@ export function DisplayPage() {
   return (
     <>
       <PixiArena snap={snap} />
-      <HudOverlay snap={snap} />
+      <HudOverlay snap={snap} onResetRoom={onResetRoom} />
     </>
   );
 }

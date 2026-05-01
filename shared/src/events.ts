@@ -6,6 +6,7 @@ export interface ClientToServerEvents {
     args: { roomCode: string },
     cb: (res: { ok: boolean; error?: string }) => void
   ) => void;
+  'display:end_room': (cb: (res: { newRoomCode: string }) => void) => void;
   'phone:join': (
     args: { roomCode: string; sessionId?: string },
     cb: (res: { ok: true; role: Role; sessionId: string } | { ok: false; error: string }) => void
@@ -18,4 +19,5 @@ export interface ClientToServerEvents {
 export interface ServerToClientEvents {
   'display:state': (snapshot: DisplaySnapshot) => void;
   'phone:state': (snapshot: PhoneSnapshot) => void;
+  'room:ended': () => void;
 }
