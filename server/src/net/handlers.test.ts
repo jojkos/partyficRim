@@ -1,0 +1,495 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { createServer, type Server as HttpServer } from 'node:http';
+import { Server, type Socket as ServerSocket } from 'socket.io';
+import { io as ioClient, type Socket as ClientSocket } from 'socket.io-client';
+import type { ClientToServerEvents, ServerToClientEvents } from '@polararena/shared';
+import { RoomManager } from '../game/rooms.js';
+import { registerHandlers, socketByPlayerId } from './handlers.js';
+
+type IO = Server<ClientToServerEvents, ServerToClientEvents>;
+type CSocket = ClientSocket<ServerToClientEvents, ClientToServerEvents>;
+
+let httpServer: HttpServer;
+let io: IO;
+let port: number;
+let mgr: RoomManager;
+let clients: CSocket[] = [];
+
+beforeEach(async () => {
+  socketByPlayerId.clear();
+  httpServer = createServer();
+  io = new Server(httpServer);
+  mgr = new RoomManager();
+  registerHandlers(io, mgr);
+  await new Promise<void>((resolve) => {
+    httpServer.listen(0, () => resolve());
+  });
+  const addr = httpServer.address();
+  if (typeof addr === 'object' && addr && addr.port) port = addr.port;
+});
+
+afterEach(async () => {
+  for (const c of clients) c.disconnect();
+  clients = [];
+  socketByPlayerId.clear();
+  io.close();
+  await new Promise<void>((resolve) => {
+    httpServer.close(() => resolve());
+  });
+});
+
+async function connect(): Promise<CSocket> {
+  const sock = ioClient(`http://localhost:${port}`, {
+    transports: ['websocket'],
+    forceNew: true,
+  }) as CSocket;
+  clients.push(sock);
+  await new Promise<void>((resolve) => {
+    sock.on('connect', () => resolve());
+  });
+  return sock;
+}
+
+function serverSocketFor(client: CSocket): ServerSocket | undefined {
+  return io.sockets.sockets.get(client.id) as ServerSocket | undefined;
+}
+
+function isInRoom(serverSock: ServerSocket | undefined, channel: string): boolean {
+  return serverSock?.rooms.has(channel) ?? false;
+}
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise((r) => { setTimeout(r, ms); });
+}
+
+async function emitCreateRoom(c: CSocket): Promise<string> {
+  return new Promise((resolve) => {
+    c.emit('display:create_room', ({ roomCode }) => resolve(roomCode));
+  });
+}
+
+async function emitJoinRoom(
+  c: CSocket,
+  roomCode: string
+): Promise<{ ok: boolean; error?: string }> {
+  return new Promise((resolve) => {
+    c.emit('display:join_room', { roomCode }, (res) => resolve(res));
+  });
+}
+
+async function emitEndRoom(c: CSocket): Promise<string> {
+  return new Promise((resolve) => {
+    c.emit('display:end_room', ({ newRoomCode }) => resolve(newRoomCode));
+  });
+}
+
+async function emitPhoneJoin(
+  c: CSocket,
+  roomCode: string,
+  sessionId?: string
+): Promise<
+  { ok: true; role: 'X' | 'Y'; sessionId: string } | { ok: false; error: string }
+> {
+  return new Promise((resolve) => {
+    c.emit('phone:join', { roomCode, sessionId }, (res) => resolve(res));
+  });
+}
+
+describe('display:create_room', () => {
+  it('creates a 4-letter room and stores the code on socket.data', async () => {
+    const c = await connect();
+    const code = await emitCreateRoom(c);
+    expect(code).toMatch(/^[A-Z]{4}$/);
+    expect(mgr.getRoom(code)).toBeDefined();
+
+    const ssock = serverSocketFor(c);
+    expect((ssock?.data as { displayRoomCode?: string }).displayRoomCode).toBe(code);
+  });
+
+  it('puts the socket in the display channel for the new room', async () => {
+    const c = await connect();
+    const code = await emitCreateRoom(c);
+    expect(isInRoom(serverSocketFor(c), `room:${code}:display`)).toBe(true);
+  });
+
+  it('is idempotent for the same socket', async () => {
+    const c = await connect();
+    const a = await emitCreateRoom(c);
+    const b = await emitCreateRoom(c);
+    expect(a).toBe(b);
+    // Server should still have only one room from this socket.
+    expect(mgr.getRoom(a)).toBeDefined();
+  });
+
+  it('returns different codes for different sockets', async () => {
+    const a = await connect();
+    const b = await connect();
+    const codeA = await emitCreateRoom(a);
+    const codeB = await emitCreateRoom(b);
+    expect(codeA).not.toBe(codeB);
+  });
+});
+
+describe('display:join_room', () => {
+  it('returns no_such_room for an unknown code', async () => {
+    const c = await connect();
+    const res = await emitJoinRoom(c, 'ZZZZ');
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe('no_such_room');
+  });
+
+  it('joins the display channel and sets displayRoomCode (regression: end_room cleanup)', async () => {
+    const a = await connect();
+    const code = await emitCreateRoom(a);
+
+    const b = await connect();
+    const res = await emitJoinRoom(b, code);
+    expect(res.ok).toBe(true);
+
+    const ssock = serverSocketFor(b);
+    expect(isInRoom(ssock, `room:${code}:display`)).toBe(true);
+    // Critical: this was the bug. Without setting displayRoomCode here,
+    // a later end_room from this socket couldn't find the old room.
+    expect((ssock?.data as { displayRoomCode?: string }).displayRoomCode).toBe(code);
+  });
+
+  it('leaves the previous display channel when joining a different room', async () => {
+    const a = await connect();
+    const code1 = await emitCreateRoom(a);
+
+    const b = await connect();
+    const code2 = await emitCreateRoom(b);
+
+    const c = await connect();
+    await emitJoinRoom(c, code1);
+    await emitJoinRoom(c, code2);
+
+    const ssock = serverSocketFor(c);
+    expect(isInRoom(ssock, `room:${code1}:display`)).toBe(false);
+    expect(isInRoom(ssock, `room:${code2}:display`)).toBe(true);
+    expect((ssock?.data as { displayRoomCode?: string }).displayRoomCode).toBe(code2);
+  });
+});
+
+describe('phone:join', () => {
+  it('returns no_such_room for an unknown code', async () => {
+    const phone = await connect();
+    const res = await emitPhoneJoin(phone, 'ZZZZ');
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toBe('no_such_room');
+  });
+
+  it('first phone gets X, second gets Y', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+
+    const p1 = await connect();
+    const p2 = await connect();
+    const r1 = await emitPhoneJoin(p1, code);
+    const r2 = await emitPhoneJoin(p2, code);
+
+    expect(r1.ok).toBe(true);
+    expect(r2.ok).toBe(true);
+    if (r1.ok && r2.ok) {
+      expect(r1.role).toBe('X');
+      expect(r2.role).toBe('Y');
+      expect(r1.sessionId).not.toBe(r2.sessionId);
+    }
+  });
+
+  it('returns room_full on a third joiner with no matching sessionId', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+
+    const p1 = await connect();
+    const p2 = await connect();
+    const p3 = await connect();
+    await emitPhoneJoin(p1, code);
+    await emitPhoneJoin(p2, code);
+    const r3 = await emitPhoneJoin(p3, code);
+
+    expect(r3.ok).toBe(false);
+    if (!r3.ok) expect(r3.error).toBe('room_full');
+  });
+
+  it('resumes by sessionId even when both slots appear filled', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+
+    const p1 = await connect();
+    const r1 = await emitPhoneJoin(p1, code);
+    expect(r1.ok).toBe(true);
+    if (!r1.ok) return;
+    const sessionId1 = r1.sessionId;
+    const role1 = r1.role;
+
+    // Simulate p1 going away (server records connected=false but slot stays).
+    p1.disconnect();
+    await sleep(50);
+
+    const p2 = await connect();
+    await emitPhoneJoin(p2, code);
+
+    // p1 returns on a fresh socket using the same sessionId. Should resume the same role.
+    const p1b = await connect();
+    const r1b = await emitPhoneJoin(p1b, code, sessionId1);
+    expect(r1b.ok).toBe(true);
+    if (r1b.ok) expect(r1b.role).toBe(role1);
+  });
+
+  it('treats unknown sessionId as a fresh join in a half-empty room', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+
+    const phone = await connect();
+    const res = await emitPhoneJoin(phone, code, 'fake-uuid-not-in-room');
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.role).toBe('X');
+      expect(res.sessionId).not.toBe('fake-uuid-not-in-room');
+    }
+  });
+
+  it('puts the phone in the room phones channel and tracks playerId', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+
+    const phone = await connect();
+    await emitPhoneJoin(phone, code);
+
+    const ssock = serverSocketFor(phone);
+    expect(isInRoom(ssock, `room:${code}:phones`)).toBe(true);
+    const sd = ssock?.data as { roomCode?: string; playerId?: string };
+    expect(sd.roomCode).toBe(code);
+    expect(sd.playerId).toBeTypeOf('string');
+    expect(socketByPlayerId.has(sd.playerId!)).toBe(true);
+  });
+});
+
+describe('client:request_start', () => {
+  it('honored when room has 2 connected players in lobby', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+
+    const p1 = await connect();
+    const p2 = await connect();
+    await emitPhoneJoin(p1, code);
+    await emitPhoneJoin(p2, code);
+
+    p1.emit('client:request_start');
+    await sleep(50);
+
+    const room = mgr.getRoom(code);
+    expect(room?.phase).toBe('countdown');
+  });
+
+  it('ignored with only 1 player', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+
+    const p1 = await connect();
+    await emitPhoneJoin(p1, code);
+
+    p1.emit('client:request_start');
+    await sleep(50);
+
+    expect(mgr.getRoom(code)?.phase).toBe('lobby');
+  });
+
+  it('honored when triggered from the display side too', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+
+    const p1 = await connect();
+    const p2 = await connect();
+    await emitPhoneJoin(p1, code);
+    await emitPhoneJoin(p2, code);
+
+    display.emit('client:request_start');
+    await sleep(50);
+
+    expect(mgr.getRoom(code)?.phase).toBe('countdown');
+  });
+
+  it('ignored without a room context', async () => {
+    const orphan = await connect();
+    orphan.emit('client:request_start');
+    await sleep(50);
+    // Nothing to assert beyond "no crash" — server has no room for this socket.
+    expect(true).toBe(true);
+  });
+});
+
+describe('display:end_room', () => {
+  it('destroys the old room and creates a new one', async () => {
+    const display = await connect();
+    const oldCode = await emitCreateRoom(display);
+    expect(mgr.getRoom(oldCode)).toBeDefined();
+
+    const newCode = await emitEndRoom(display);
+    expect(newCode).not.toBe(oldCode);
+    expect(mgr.getRoom(oldCode)).toBeUndefined();
+    expect(mgr.getRoom(newCode)).toBeDefined();
+  });
+
+  it('after end_room the socket is only in the NEW display channel (regression: flicker)', async () => {
+    const display = await connect();
+    const oldCode = await emitCreateRoom(display);
+    const newCode = await emitEndRoom(display);
+
+    const ssock = serverSocketFor(display);
+    expect(isInRoom(ssock, `room:${oldCode}:display`)).toBe(false);
+    expect(isInRoom(ssock, `room:${newCode}:display`)).toBe(true);
+    expect((ssock?.data as { displayRoomCode?: string }).displayRoomCode).toBe(newCode);
+  });
+
+  it('also works when display first resumed via display:join_room (regression for the actual bug)', async () => {
+    // Simulate the F5-resume path: a fresh display socket joins a stored room
+    // via display:join_room, then later the user clicks × end game.
+    const seed = await connect();
+    const code = await emitCreateRoom(seed);
+
+    const display = await connect();
+    const res = await emitJoinRoom(display, code);
+    expect(res.ok).toBe(true);
+
+    const newCode = await emitEndRoom(display);
+    expect(newCode).not.toBe(code);
+    expect(mgr.getRoom(code)).toBeUndefined();
+
+    const ssock = serverSocketFor(display);
+    expect(isInRoom(ssock, `room:${code}:display`)).toBe(false);
+    expect(isInRoom(ssock, `room:${newCode}:display`)).toBe(true);
+  });
+
+  it('emits room:ended to all phones in the old room', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+
+    const p1 = await connect();
+    const p2 = await connect();
+    await emitPhoneJoin(p1, code);
+    await emitPhoneJoin(p2, code);
+
+    const ended1 = new Promise<void>((resolve) => p1.once('room:ended', () => resolve()));
+    const ended2 = new Promise<void>((resolve) => p2.once('room:ended', () => resolve()));
+
+    await emitEndRoom(display);
+
+    await Promise.race([
+      Promise.all([ended1, ended2]),
+      sleep(500).then(() => Promise.reject(new Error('room:ended not received'))),
+    ]);
+  });
+
+  it('clears phone player records, socketByPlayerId, and phones channel for the old room', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+
+    const p1 = await connect();
+    await emitPhoneJoin(p1, code);
+    const phoneSSock = serverSocketFor(p1);
+    const playerId = (phoneSSock?.data as { playerId?: string }).playerId!;
+    expect(socketByPlayerId.has(playerId)).toBe(true);
+
+    await emitEndRoom(display);
+
+    expect(socketByPlayerId.has(playerId)).toBe(false);
+    const sd = phoneSSock?.data as { roomCode?: string; playerId?: string };
+    expect(sd.roomCode).toBeUndefined();
+    expect(sd.playerId).toBeUndefined();
+    expect(isInRoom(phoneSSock, `room:${code}:phones`)).toBe(false);
+  });
+});
+
+describe('disconnect cleanup', () => {
+  it('phone disconnect marks the player as disconnected but keeps the slot reserved', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+
+    const phone = await connect();
+    const res = await emitPhoneJoin(phone, code);
+    expect(res.ok).toBe(true);
+
+    phone.disconnect();
+    await sleep(50);
+
+    const room = mgr.getRoom(code);
+    expect(room).toBeDefined();
+    expect(room!.players.size).toBe(1); // slot still there
+    const player = [...(room?.players.values() ?? [])][0];
+    expect(player?.connected).toBe(false);
+  });
+
+  it('display disconnect tears down its room (no orphan rooms accumulating)', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+    expect(mgr.getRoom(code)).toBeDefined();
+
+    display.disconnect();
+    await sleep(50);
+
+    expect(mgr.getRoom(code)).toBeUndefined();
+  });
+
+  it('display disconnect emits room:ended to phones and clears their state', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+
+    const p1 = await connect();
+    await emitPhoneJoin(p1, code);
+    const phoneSSock = serverSocketFor(p1);
+    const playerId = (phoneSSock?.data as { playerId?: string }).playerId!;
+
+    const ended = new Promise<void>((resolve) => p1.once('room:ended', () => resolve()));
+
+    display.disconnect();
+
+    await Promise.race([
+      ended,
+      sleep(500).then(() => Promise.reject(new Error('room:ended not received'))),
+    ]);
+    expect(socketByPlayerId.has(playerId)).toBe(false);
+  });
+});
+
+describe('phone:input safety', () => {
+  it('ignores input from a socket with no room context', async () => {
+    const orphan = await connect();
+    orphan.emit('phone:input', { dx: 1, dy: 0 });
+    await sleep(20);
+    // No room exists yet, no crash, no state mutation.
+    expect(true).toBe(true);
+  });
+
+  it('updates lastInput on the player record', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+
+    const phone = await connect();
+    const res = await emitPhoneJoin(phone, code);
+    expect(res.ok).toBe(true);
+
+    phone.emit('phone:input', { dx: 0.7, dy: 0 });
+    await sleep(50);
+
+    const room = mgr.getRoom(code);
+    const player = [...(room?.players.values() ?? [])][0];
+    expect(player?.lastInput.x).toBeCloseTo(0.7, 5);
+    expect(player?.lastInput.y).toBe(0);
+  });
+
+  it('clamps input magnitude to 1', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+    const phone = await connect();
+    await emitPhoneJoin(phone, code);
+
+    phone.emit('phone:input', { dx: 3, dy: 4 }); // magnitude 5
+    await sleep(50);
+
+    const player = [...(mgr.getRoom(code)!.players.values())][0];
+    const m = Math.hypot(player.lastInput.x, player.lastInput.y);
+    expect(m).toBeCloseTo(1, 5);
+  });
+});
