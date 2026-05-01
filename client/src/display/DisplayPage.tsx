@@ -1,3 +1,9 @@
+import { useMemo, useState } from 'react';
+import { createSocket } from '../socket.js';
+import { DisplayLobby } from './DisplayLobby.js';
+
 export function DisplayPage() {
-  return <div style={{ padding: 24 }}><h1>polarArena display</h1></div>;
+  const socket = useMemo(() => createSocket(), []);
+  const [, setRoomCode] = useState<string | null>(null);
+  return <DisplayLobby socket={socket} onRoomCreated={setRoomCode} />;
 }
