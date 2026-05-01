@@ -24,6 +24,7 @@ export function PhoneGame({ socket, role, roomCode }: Props) {
 
   const lockAxis = snap?.mode === 'on_foot' ? null : (role === 'X' ? 'x' : 'y');
   const color = ROLE_COLOR[role];
+  const enterDisabled = snap?.mode === 'on_foot' && !snap.nearRobot;
 
   return (
     <div style={{
@@ -37,11 +38,15 @@ export function PhoneGame({ socket, role, roomCode }: Props) {
         {role}-axis · Score {snap?.score ?? 0} · Room {roomCode}
       </div>
       <Joystick lockAxis={lockAxis} onMove={onMove} color={color} />
-      <button onClick={onButton} style={{
-        position: 'absolute', top: 0, bottom: 0, right: 0, width: '50%',
-        border: 'none', background: 'rgba(255,255,255,0.06)',
-        color, fontSize: 48, fontWeight: 900, letterSpacing: 4,
-      }}>
+      <button
+        onClick={onButton}
+        disabled={enterDisabled}
+        style={{
+          width: 160, height: 160, borderRadius: '50%', border: 'none',
+          background: enterDisabled ? '#444' : color, color: '#fff', fontSize: 24, fontWeight: 700,
+          opacity: enterDisabled ? 0.5 : 1,
+        }}
+      >
         {snap?.mode === 'on_foot' ? 'ENTER' : 'EXIT'}
       </button>
     </div>
