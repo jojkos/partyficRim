@@ -2,11 +2,13 @@ import type { DisplaySnapshot, PhoneSnapshot, Role, Mode } from '@polararena/sha
 import type { Room } from './rooms.js';
 import { computeRobotVelocity, applyMovement, computeOnFootVelocity } from './movement.js';
 import { resolveCollisions } from './collision.js';
+import { handleButton, isNearRobot } from './exit_enter.js';
 
 const ROBOT_SPEED = 200;
 const PLAYER_SPEED = 200;
 const ROBOT_HALF = 20;
 const PLAYER_HALF = 10;
+const TILE = 32;
 
 const COUNTDOWN_MS = 3000;
 
@@ -50,6 +52,14 @@ export function tickRoom(room: Room, dt: number): void {
     const xPlayer = [...room.players.values()].find((p) => p.role === 'X');
     const yPlayer = [...room.players.values()].find((p) => p.role === 'Y');
     if (!xPlayer || !yPlayer) return;
+
+    // process pending button presses before movement
+    for (const p of [xPlayer, yPlayer]) {
+      if (p.lastButtonAt > 0) {
+        handleButton(p, room.robot, TILE);
+        p.lastButtonAt = 0;
+      }
+    }
 
     const robotVel = computeRobotVelocity(
       { x: { input: xPlayer.lastInput, mode: xPlayer.mode },
@@ -107,6 +117,6 @@ export function buildPhoneSnapshot(room: Room, playerId: string): PhoneSnapshot 
     mode: me.mode,
     score: room.score,
     occupancy,
-    nearRobot: false, // updated in re-entry phase
+    nearRobot: me.mode === 'on_foot' ? isNearRobot(me.pos, room.robot, TILE) : true,
   };
 }
