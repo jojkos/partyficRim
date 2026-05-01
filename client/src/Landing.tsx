@@ -4,7 +4,7 @@ export function Landing() {
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-      gap: 40, height: '100vh', padding: 24, textAlign: 'center',
+      gap: 40, height: '100%', padding: 24, textAlign: 'center',
     }}>
       <h1 style={{ fontSize: 64, margin: 0, letterSpacing: 6 }}>polarArena</h1>
       <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', justifyContent: 'center' }}>

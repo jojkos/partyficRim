@@ -29,7 +29,7 @@ export function DisplayLobby({ socket, roomCode, snap, onResetRoom }: Props) {
   return (
     <div style={{
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      gap: 28, height: '100vh', flexDirection: 'column', padding: 24,
+      gap: 28, height: '100%', flexDirection: 'column', padding: 24,
     }}>
       {countdown !== null ? (
         <div style={{ fontSize: 200, fontWeight: 800 }}>{countdown}</div>
