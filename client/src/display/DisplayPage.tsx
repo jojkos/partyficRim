@@ -54,10 +54,23 @@ export function DisplayPage() {
     else socket.once('connect', ensureRoom);
   }, [socket]);
 
+  useEffect(() => {
+    const onRestarted = ({ newRoomCode }: { newRoomCode: string }) => {
+      socket.emit('display:join_room', { roomCode: newRoomCode }, (res) => {
+        if (!res.ok) return;
+        localStorage.setItem(STORAGE_KEY, newRoomCode);
+        setRoomCode(newRoomCode);
+      });
+    };
+    socket.on('display:room_restarted', onRestarted);
+    return () => { socket.off('display:room_restarted', onRestarted); };
+  }, [socket]);
+
   const onResetRoom = () => {
     console.log('[display] end_room requested');
-    socket.emit('display:end_room', ({ newRoomCode }) => {
-      console.log('[display] end_room replaced ->', newRoomCode);
+    socket.emit('client:restart_room', ({ ok, newRoomCode }) => {
+      if (!ok || !newRoomCode) return;
+      console.log('[display] room restarted ->', newRoomCode);
       localStorage.setItem(STORAGE_KEY, newRoomCode);
       setRoomCode(newRoomCode);
     });

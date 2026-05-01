@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createSocket } from '../socket.js';
 import type { Role, PhoneSnapshot } from '@partyficrim/shared';
 import { PhoneLobby } from './PhoneLobby.js';
@@ -44,14 +44,19 @@ export function PlayPage() {
   const [role, setRole] = useState<Role | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [snap, setSnap] = useState<PhoneSnapshot | null>(null);
+  const joinSeqRef = useRef(0);
 
   useEffect(() => {
     if (!roomCode || roomCode.length !== 4) return;
+    setSnap(null);
+    setRole(null);
+    const joinSeq = ++joinSeqRef.current;
     const session = loadSession();
     // Only send sessionId if it's tied to the same room we're joining.
     const sessionId = session?.roomCode === roomCode ? session.sessionId : undefined;
 
     socket.emit('phone:join', { roomCode, sessionId }, (res) => {
+      if (joinSeq !== joinSeqRef.current) return;
       if (!res.ok) {
         clearSession();
         setError(res.error);
@@ -70,11 +75,24 @@ export function PlayPage() {
         console.log(`[phone] phase ${lastPhase || '(none)'} -> ${s.phase}`);
         lastPhase = s.phase;
       }
+      setRole(s.role);
       setSnap(s);
     };
     socket.on('phone:state', h);
     return () => { socket.off('phone:state', h); };
   }, [socket]);
+
+  const leaveRoom = () => {
+    joinSeqRef.current++;
+    socket.emit('phone:leave', () => {
+      clearSession();
+      window.history.replaceState({}, '', '/play');
+      setRoomCode('');
+      setRole(null);
+      setSnap(null);
+      setError(null);
+    });
+  };
 
   useEffect(() => {
     const onEnded = () => {
@@ -100,6 +118,8 @@ export function PlayPage() {
           const v = (new FormData(e.currentTarget).get('code') as string).toUpperCase();
           if (v.length === 4) {
             setError(null);
+            setSnap(null);
+            setRole(null);
             setRoomCode(v);
           }
         }}
@@ -117,8 +137,11 @@ export function PlayPage() {
     );
   }
 
-  if (!role) return <div style={{ padding: 24 }}>Joining {roomCode}…</div>;
+  const effectiveRole = snap?.role ?? role;
+
   return snap?.phase === 'lobby' || snap?.phase === 'countdown' || snap === null
-    ? <PhoneLobby socket={socket} role={role} roomCode={roomCode} snap={snap} />
-    : <PhoneGame socket={socket} role={role} roomCode={roomCode} />;
+    ? <PhoneLobby socket={socket} role={effectiveRole} roomCode={roomCode} snap={snap} onLeave={leaveRoom} />
+    : effectiveRole
+      ? <PhoneGame socket={socket} role={effectiveRole} roomCode={roomCode} onLeave={leaveRoom} />
+      : <PhoneLobby socket={socket} role={effectiveRole} roomCode={roomCode} snap={snap} onLeave={leaveRoom} />;
 }

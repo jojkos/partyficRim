@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createServer, type Server as HttpServer } from 'node:http';
 import { Server, type Socket as ServerSocket } from 'socket.io';
 import { io as ioClient, type Socket as ClientSocket } from 'socket.io-client';
-import type { ClientToServerEvents, ServerToClientEvents } from '@partyficrim/shared';
+import type { ClientToServerEvents, ServerToClientEvents, Role } from '@partyficrim/shared';
 import { RoomManager } from '../game/rooms.js';
 import { registerHandlers, socketByPlayerId } from './handlers.js';
 
@@ -32,10 +32,12 @@ afterEach(async () => {
   for (const c of clients) c.disconnect();
   clients = [];
   socketByPlayerId.clear();
-  io.close();
-  await new Promise<void>((resolve) => {
-    httpServer.close(() => resolve());
-  });
+  await new Promise<void>((resolve) => io.close(() => resolve()));
+  if (httpServer.listening) {
+    await new Promise<void>((resolve) => {
+      httpServer.close(() => resolve());
+    });
+  }
 });
 
 async function connect(): Promise<CSocket> {
@@ -51,7 +53,8 @@ async function connect(): Promise<CSocket> {
 }
 
 function serverSocketFor(client: CSocket): ServerSocket | undefined {
-  return io.sockets.sockets.get(client.id) as ServerSocket | undefined;
+  const id = client.id;
+  return id ? io.sockets.sockets.get(id) as ServerSocket | undefined : undefined;
 }
 
 function isInRoom(serverSock: ServerSocket | undefined, channel: string): boolean {
@@ -88,11 +91,23 @@ async function emitPhoneJoin(
   roomCode: string,
   sessionId?: string
 ): Promise<
-  { ok: true; role: 'X' | 'Y'; sessionId: string } | { ok: false; error: string }
+  { ok: true; role: Role | null; sessionId: string } | { ok: false; error: string }
 > {
   return new Promise((resolve) => {
     c.emit('phone:join', { roomCode, sessionId }, (res) => resolve(res));
   });
+}
+
+async function claimRole(c: CSocket, role: Role | null): Promise<void> {
+  c.emit('phone:claim_role', { role });
+  await sleep(50);
+}
+
+async function joinAndClaim(c: CSocket, roomCode: string, role: Role) {
+  const res = await emitPhoneJoin(c, roomCode);
+  expect(res.ok).toBe(true);
+  await claimRole(c, role);
+  return res;
 }
 
 describe('display:create_room', () => {
@@ -179,7 +194,7 @@ describe('phone:join', () => {
     if (!res.ok) expect(res.error).toBe('no_such_room');
   });
 
-  it('first phone gets X, second gets Y', async () => {
+  it('phones join unclaimed until they pick roles', async () => {
     const display = await connect();
     const code = await emitCreateRoom(display);
 
@@ -191,25 +206,28 @@ describe('phone:join', () => {
     expect(r1.ok).toBe(true);
     expect(r2.ok).toBe(true);
     if (r1.ok && r2.ok) {
-      expect(r1.role).toBe('X');
-      expect(r2.role).toBe('Y');
+      expect(r1.role).toBeNull();
+      expect(r2.role).toBeNull();
       expect(r1.sessionId).not.toBe(r2.sessionId);
     }
   });
 
-  it('returns room_full on a third joiner with no matching sessionId', async () => {
+  it('allows exactly three phone joiners', async () => {
     const display = await connect();
     const code = await emitCreateRoom(display);
 
     const p1 = await connect();
     const p2 = await connect();
     const p3 = await connect();
+    const p4 = await connect();
     await emitPhoneJoin(p1, code);
     await emitPhoneJoin(p2, code);
     const r3 = await emitPhoneJoin(p3, code);
+    const r4 = await emitPhoneJoin(p4, code);
 
-    expect(r3.ok).toBe(false);
-    if (!r3.ok) expect(r3.error).toBe('room_full');
+    expect(r3.ok).toBe(true);
+    expect(r4.ok).toBe(false);
+    if (!r4.ok) expect(r4.error).toBe('room_full');
   });
 
   it('resumes by sessionId even when both slots appear filled', async () => {
@@ -229,6 +247,8 @@ describe('phone:join', () => {
 
     const p2 = await connect();
     await emitPhoneJoin(p2, code);
+    const p3 = await connect();
+    await emitPhoneJoin(p3, code);
 
     // p1 returns on a fresh socket using the same sessionId. Should resume the same role.
     const p1b = await connect();
@@ -245,7 +265,7 @@ describe('phone:join', () => {
     const res = await emitPhoneJoin(phone, code, 'fake-uuid-not-in-room');
     expect(res.ok).toBe(true);
     if (res.ok) {
-      expect(res.role).toBe('X');
+      expect(res.role).toBeNull();
       expect(res.sessionId).not.toBe('fake-uuid-not-in-room');
     }
   });
@@ -264,17 +284,103 @@ describe('phone:join', () => {
     expect(sd.playerId).toBeTypeOf('string');
     expect(socketByPlayerId.has(sd.playerId!)).toBe(true);
   });
-});
 
-describe('client:request_start', () => {
-  it('honored when room has 2 connected players in lobby', async () => {
+  it('prunes disconnected unclaimed players so a real phone can join', async () => {
     const display = await connect();
     const code = await emitCreateRoom(display);
 
     const p1 = await connect();
     const p2 = await connect();
+    const p3 = await connect();
     await emitPhoneJoin(p1, code);
     await emitPhoneJoin(p2, code);
+    await emitPhoneJoin(p3, code);
+    p3.disconnect();
+    await sleep(50);
+
+    const p4 = await connect();
+    const r4 = await emitPhoneJoin(p4, code);
+
+    expect(r4.ok).toBe(true);
+    expect(mgr.getRoom(code)?.players.size).toBe(3);
+  });
+
+  it('allows a disconnected claimed role to be claimed by a connected player', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+
+    const p1 = await connect();
+    await emitPhoneJoin(p1, code);
+    await claimRole(p1, 'defense');
+    p1.disconnect();
+    await sleep(50);
+
+    const p2 = await connect();
+    await emitPhoneJoin(p2, code);
+    await claimRole(p2, 'defense');
+
+    const room = mgr.getRoom(code)!;
+    const connectedDefense = [...room.players.values()].find((p) => p.connected && p.role === 'defense');
+    expect(connectedDefense).toBeDefined();
+  });
+});
+
+describe('role controls', () => {
+  it('defense quadrant toggles exactly one shield quadrant at a time', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+    const defense = await connect();
+    await joinAndClaim(defense, code, 'defense');
+
+    defense.emit('phone:quadrant', { index: 0 });
+    await sleep(50);
+    expect(mgr.getRoom(code)?.shieldQuadrant).toBe(0);
+
+    defense.emit('phone:quadrant', { index: 2 });
+    await sleep(50);
+    expect(mgr.getRoom(code)?.shieldQuadrant).toBe(2);
+
+    defense.emit('phone:quadrant', { index: 2 });
+    await sleep(50);
+    expect(mgr.getRoom(code)?.shieldQuadrant).toBeNull();
+  });
+
+  it('weapons selects an attack type, then fires by tapping a direction', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+    const defense = await connect();
+    const repair = await connect();
+    const weapons = await connect();
+    await joinAndClaim(defense, code, 'defense');
+    await joinAndClaim(repair, code, 'repair');
+    await joinAndClaim(weapons, code, 'weapons');
+    const room = mgr.getRoom(code)!;
+    room.phase = 'playing';
+
+    weapons.emit('phone:select_attack', { kind: 'rotary' });
+    await sleep(50);
+    expect([...room.players.values()].find((p) => p.role === 'weapons')?.selectedAttackKind).toBe('rotary');
+
+    weapons.emit('phone:quadrant', { index: 1 });
+    await sleep(50);
+
+    expect(room.attackQuadrant).toBe(1);
+    expect(room.attacks.at(-1)?.kind).toBe('rotary');
+    expect(room.attacks.at(-1)?.quadrant).toBe(1);
+  });
+});
+
+describe('client:request_start', () => {
+  it('honored when room has 3 connected players with claimed roles in lobby', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+
+    const p1 = await connect();
+    const p2 = await connect();
+    const p3 = await connect();
+    await joinAndClaim(p1, code, 'defense');
+    await joinAndClaim(p2, code, 'repair');
+    await joinAndClaim(p3, code, 'weapons');
 
     p1.emit('client:request_start');
     await sleep(50);
@@ -302,8 +408,10 @@ describe('client:request_start', () => {
 
     const p1 = await connect();
     const p2 = await connect();
-    await emitPhoneJoin(p1, code);
-    await emitPhoneJoin(p2, code);
+    const p3 = await connect();
+    await joinAndClaim(p1, code, 'defense');
+    await joinAndClaim(p2, code, 'repair');
+    await joinAndClaim(p3, code, 'weapons');
 
     display.emit('client:request_start');
     await sleep(50);
@@ -368,8 +476,10 @@ describe('display:end_room', () => {
 
     const p1 = await connect();
     const p2 = await connect();
+    const p3 = await connect();
     await emitPhoneJoin(p1, code);
     await emitPhoneJoin(p2, code);
+    await emitPhoneJoin(p3, code);
 
     const ended1 = new Promise<void>((resolve) => p1.once('room:ended', () => resolve()));
     const ended2 = new Promise<void>((resolve) => p2.once('room:ended', () => resolve()));
@@ -452,8 +562,10 @@ describe('disconnect cleanup', () => {
 
     const p1 = await connect();
     const p2 = await connect();
-    await emitPhoneJoin(p1, code);
-    await emitPhoneJoin(p2, code);
+    const p3 = await connect();
+    await joinAndClaim(p1, code, 'defense');
+    await joinAndClaim(p2, code, 'repair');
+    await joinAndClaim(p3, code, 'weapons');
 
     // Display refresh: old socket goes away, fresh socket resumes via join_room.
     display1.disconnect();
@@ -464,7 +576,7 @@ describe('disconnect cleanup', () => {
     const room = mgr.getRoom(code);
     expect(room).toBeDefined();
     const players = [...(room?.players.values() ?? [])];
-    expect(players.length).toBe(2);
+    expect(players.length).toBe(3);
     expect(players.every((p) => p.connected)).toBe(true);
 
     // request_start must be honored — this is the bug the user just reported.
@@ -490,6 +602,7 @@ describe('phone:input safety', () => {
     const phone = await connect();
     const res = await emitPhoneJoin(phone, code);
     expect(res.ok).toBe(true);
+    await claimRole(phone, 'defense');
 
     phone.emit('phone:input', { dx: 0.7, dy: 0 });
     await sleep(50);
@@ -505,6 +618,7 @@ describe('phone:input safety', () => {
     const code = await emitCreateRoom(display);
     const phone = await connect();
     await emitPhoneJoin(phone, code);
+    await claimRole(phone, 'defense');
 
     phone.emit('phone:input', { dx: 3, dy: 4 }); // magnitude 5
     await sleep(50);

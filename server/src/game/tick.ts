@@ -1,9 +1,12 @@
-import type { DisplaySnapshot, PhoneSnapshot, Role, Mode, Phase } from '@partyficrim/shared';
+import type { DisplaySnapshot, PhoneSnapshot, Role, Mode, Phase, Quadrant } from '@partyficrim/shared';
 import type { Room } from './rooms.js';
+import { addAttack, playerForRole, roleClaims } from './rooms.js';
 import { computeRobotVelocity, applyMovement, computeOnFootVelocity } from './movement.js';
 import { resolveCollisions } from './collision.js';
 import { handleButton, isNearRobot } from './exit_enter.js';
-import { trySpawnPowerup, processPickups, POWERUP_RADIUS } from './powerups.js';
+import { CORE_INTERVAL_MS, CORE_MAX, trySpawnCore, unavailableCoreTypes, processCorePickups, offeredCores } from './cores.js';
+import { applyBombDamage } from './attacks.js';
+import { applyEnemyContactDamage, ENEMY_INTERVAL_MS, ENEMY_MAX, killEnemiesInAttack, moveEnemies, trySpawnEnemy } from './enemies.js';
 import { log } from '../log.js';
 
 function setPhase(room: Room, next: Phase): void {
@@ -17,9 +20,6 @@ const PLAYER_SPEED = 200;
 const ROBOT_HALF = 20;
 const PLAYER_HALF = 10;
 const TILE = 32;
-const POWERUP_INTERVAL_MS = 3000;
-const POWERUP_MAX = 5;
-
 const COUNTDOWN_MS = 3000;
 
 function allConnected(room: Room): boolean {
@@ -28,7 +28,9 @@ function allConnected(room: Room): boolean {
 }
 
 export function requestStart(room: Room): void {
-  if (room.phase === 'lobby' && room.players.size === 2 && allConnected(room)) {
+  const claims = roleClaims(room);
+  const allRolesClaimed = claims.defense && claims.repair && claims.weapons;
+  if (room.phase === 'lobby' && room.players.size >= 3 && allConnected(room) && allRolesClaimed) {
     setPhase(room, 'countdown');
     room.countdownMsRemaining = COUNTDOWN_MS;
   }
@@ -44,7 +46,7 @@ export function tickRoom(room: Room, dt: number): void {
   }
 
   if (room.phase === 'countdown') {
-    if (playerCount < 2 || !allConnected(room)) {
+    if (playerCount < 3 || !allConnected(room)) {
       setPhase(room, 'lobby');
       room.countdownMsRemaining = 0;
       return;
@@ -63,12 +65,12 @@ export function tickRoom(room: Room, dt: number): void {
       return;
     }
 
-    const xPlayer = [...room.players.values()].find((p) => p.role === 'X');
-    const yPlayer = [...room.players.values()].find((p) => p.role === 'Y');
-    if (!xPlayer || !yPlayer) return;
+    const defense = playerForRole(room, 'defense');
+    const repair = playerForRole(room, 'repair');
+    if (!defense || !repair) return;
 
     // process pending button presses before movement
-    for (const p of [xPlayer, yPlayer]) {
+    for (const p of room.players.values()) {
       if (p.lastButtonAt > 0) {
         handleButton(p, room.robot, TILE);
         p.lastButtonAt = 0;
@@ -76,14 +78,14 @@ export function tickRoom(room: Room, dt: number): void {
     }
 
     const robotVel = computeRobotVelocity(
-      { x: { input: xPlayer.lastInput, mode: xPlayer.mode },
-        y: { input: yPlayer.lastInput, mode: yPlayer.mode } },
+      { x: { input: defense.lastInput, mode: defense.mode },
+        y: { input: repair.lastInput, mode: repair.mode } },
       ROBOT_SPEED
     );
     applyMovement(room.robot, robotVel, dt);
     resolveCollisions(room.robot, ROBOT_HALF, room.obstacles, room.arena);
 
-    for (const p of [xPlayer, yPlayer]) {
+    for (const p of room.players.values()) {
       if (p.mode === 'on_foot') {
         const v = computeOnFootVelocity(p.lastInput, PLAYER_SPEED);
         applyMovement(p.pos, v, dt);
@@ -95,27 +97,49 @@ export function tickRoom(room: Room, dt: number): void {
       }
     }
 
-    // spawn + pickup powerups
     const now = Date.now();
-    const spawned = trySpawnPowerup({
-      now, lastSpawnAt: room.lastPowerupSpawnAt, intervalMs: POWERUP_INTERVAL_MS,
-      max: POWERUP_MAX, arena: room.arena, obstacles: room.obstacles, existing: room.powerups,
+    moveEnemies(room, dt);
+    applyEnemyContactDamage(room, now);
+    room.attacks = room.attacks
+      .map((attack) => ({ ...attack, ttlMsRemaining: attack.ttlMsRemaining - dtMs }))
+      .filter((attack) => attack.ttlMsRemaining > 0);
+    for (let i = room.bombs.length - 1; i >= 0; i--) {
+      const bomb = room.bombs[i];
+      if (!bomb) continue;
+      bomb.fuseMsRemaining = Math.max(0, bomb.fuseAt - now);
+      if (bomb.fuseMsRemaining <= 0) {
+        room.bombs.splice(i, 1);
+        addAttack(room, 'bomb', room.attackQuadrant ?? 1, [], bomb.pos);
+        killEnemiesInAttack(room, 'bomb', room.attackQuadrant ?? 1, bomb.pos);
+        applyBombDamage(room, bomb.pos);
+      }
+    }
+
+    const spawned = trySpawnCore({
+      now, lastSpawnAt: room.lastCoreSpawnAt, intervalMs: CORE_INTERVAL_MS,
+      max: CORE_MAX, arena: room.arena, obstacles: room.obstacles, existing: room.cores,
+      unavailableTypes: unavailableCoreTypes(room),
     });
-    if (spawned) room.lastPowerupSpawnAt = now;
+    if (spawned) room.lastCoreSpawnAt = now;
+
+    const enemySpawned = trySpawnEnemy({
+      now, lastSpawnAt: room.lastEnemySpawnAt, intervalMs: ENEMY_INTERVAL_MS,
+      max: ENEMY_MAX, arena: room.arena, obstacles: room.obstacles, existing: room.enemies,
+    });
+    if (enemySpawned) room.lastEnemySpawnAt = now;
 
     const pickers: { pos: { x: number; y: number }; half: number }[] = [
       { pos: room.robot, half: ROBOT_HALF },
     ];
-    for (const p of [xPlayer, yPlayer]) {
+    for (const p of room.players.values()) {
       if (p.mode === 'on_foot') pickers.push({ pos: p.pos, half: PLAYER_HALF });
     }
-    const picked = processPickups(room.powerups, pickers);
-    room.score += picked;
+    processCorePickups(room, pickers, defense, repair);
     return;
   }
 
   if (room.phase === 'paused') {
-    if (allConnected(room) && playerCount === 2) {
+    if (allConnected(room) && playerCount >= 3) {
       setPhase(room, 'playing');
     }
     return;
@@ -130,28 +154,43 @@ export function buildDisplaySnapshot(room: Room): DisplaySnapshot {
     players: [...room.players.values()].map((p) => ({
       id: p.id, role: p.role, mode: p.mode, pos: { x: p.pos.x, y: p.pos.y }, connected: p.connected,
     })),
-    powerups: [...room.powerups.values()].map((u) => ({ id: u.id, pos: { x: u.pos.x, y: u.pos.y } })),
+    cores: [...room.cores.values()].map((u) => ({ id: u.id, type: u.type, pos: { x: u.pos.x, y: u.pos.y } })),
+    enemies: [...room.enemies.values()].map((e) => ({ id: e.id, pos: { x: e.pos.x, y: e.pos.y }, vel: { x: e.vel.x, y: e.vel.y } })),
     obstacles: room.obstacles.map((o) => ({ ...o })),
-    score: room.score,
     arena: { ...room.arena },
     roomCode: room.code,
     eventFeed: room.eventFeed.slice(),
+    quadrantHp: { ...room.quadrantHp },
+    shieldQuadrant: room.shieldQuadrant,
+    attackQuadrant: room.attackQuadrant,
+    bombs: room.bombs.map((b) => ({ id: b.id, pos: { x: b.pos.x, y: b.pos.y }, fuseMsRemaining: b.fuseMsRemaining, radius: b.radius })),
+    attacks: room.attacks.map((a) => ({ ...a, pos: a.pos ? { x: a.pos.x, y: a.pos.y } : undefined })),
+    roleClaims: roleClaims(room),
   };
 }
 
 export function buildPhoneSnapshot(room: Room, playerId: string): PhoneSnapshot {
-  const occupancy: Record<Role, Mode> = { X: 'in_robot', Y: 'in_robot' };
-  for (const p of room.players.values()) occupancy[p.role] = p.mode;
+  const occupancy: Record<Role, Mode | null> = { defense: null, repair: null, weapons: null };
+  for (const p of room.players.values()) {
+    if (p.connected && p.role) occupancy[p.role] = p.mode;
+  }
   const me = room.players.get(playerId)!;
+  const allOffered = offeredCores(room);
+  const weaponSelectedCores = me.weaponSelectedCores.filter((type) => allOffered.includes(type));
   return {
     phase: room.phase,
     role: me.role,
     mode: me.mode,
-    score: room.score,
     occupancy,
     nearRobot: me.mode === 'on_foot' ? isNearRobot(me.pos, room.robot, TILE) : true,
     playerCount: room.players.size,
-    selected: [me.selected[0], me.selected[1], me.selected[2], me.selected[3]],
+    roleClaims: roleClaims(room),
+    inventory: me.inventory.slice(),
+    selectedCores: me.selectedCores.slice(),
+    offeredCores: allOffered,
+    weaponSelectedCores,
+    selectedAttackKind: me.selectedAttackKind,
     quadrant: me.quadrant,
+    quadrantHp: { ...room.quadrantHp },
   };
 }
