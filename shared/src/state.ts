@@ -46,4 +46,5 @@ export interface PhoneSnapshot {
   score: number;
   occupancy: Record<Role, Mode>;
   nearRobot: boolean;
+  playerCount: number;
 }

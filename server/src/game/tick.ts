@@ -20,15 +20,19 @@ function allConnected(room: Room): boolean {
   return true;
 }
 
+export function requestStart(room: Room): void {
+  if (room.phase === 'lobby' && room.players.size === 2 && allConnected(room)) {
+    room.phase = 'countdown';
+    room.countdownMsRemaining = COUNTDOWN_MS;
+  }
+}
+
 export function tickRoom(room: Room, dt: number): void {
   const dtMs = dt * 1000;
   const playerCount = room.players.size;
 
   if (room.phase === 'lobby') {
-    if (playerCount === 2) {
-      room.phase = 'countdown';
-      room.countdownMsRemaining = COUNTDOWN_MS;
-    }
+    // start is now manual via requestStart(); the lobby just sits here.
     return;
   }
 
@@ -138,5 +142,6 @@ export function buildPhoneSnapshot(room: Room, playerId: string): PhoneSnapshot 
     score: room.score,
     occupancy,
     nearRobot: me.mode === 'on_foot' ? isNearRobot(me.pos, room.robot, TILE) : true,
+    playerCount: room.players.size,
   };
 }

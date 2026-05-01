@@ -52,7 +52,7 @@ export function PlayPage() {
 
   if (error) return <div style={{ padding: 24 }}>Error: {error}</div>;
   if (!role) return <div style={{ padding: 24 }}>Joining {roomCode}…</div>;
-  return snap?.phase === 'lobby' || snap?.phase === 'countdown'
-    ? <PhoneLobby role={role} roomCode={roomCode} />
+  return snap?.phase === 'lobby' || snap?.phase === 'countdown' || snap === null
+    ? <PhoneLobby socket={socket} role={role} roomCode={roomCode} snap={snap} />
     : <PhoneGame socket={socket} role={role} roomCode={roomCode} />;
 }

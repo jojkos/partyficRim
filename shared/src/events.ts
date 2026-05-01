@@ -12,6 +12,7 @@ export interface ClientToServerEvents {
   ) => void;
   'phone:input': (args: { dx: number; dy: number }) => void;
   'phone:button': () => void;
+  'client:request_start': () => void;
 }
 
 export interface ServerToClientEvents {
