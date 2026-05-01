@@ -1,9 +1,16 @@
-import type { DisplaySnapshot, PhoneSnapshot, Role, Mode } from '@polararena/shared';
+import type { DisplaySnapshot, PhoneSnapshot, Role, Mode, Phase } from '@polararena/shared';
 import type { Room } from './rooms.js';
 import { computeRobotVelocity, applyMovement, computeOnFootVelocity } from './movement.js';
 import { resolveCollisions } from './collision.js';
 import { handleButton, isNearRobot } from './exit_enter.js';
 import { trySpawnPowerup, processPickups, POWERUP_RADIUS } from './powerups.js';
+import { log } from '../log.js';
+
+function setPhase(room: Room, next: Phase): void {
+  if (room.phase === next) return;
+  log('phase', `${room.code} ${room.phase} -> ${next}`);
+  room.phase = next;
+}
 
 const ROBOT_SPEED = 200;
 const PLAYER_SPEED = 200;
@@ -22,7 +29,7 @@ function allConnected(room: Room): boolean {
 
 export function requestStart(room: Room): void {
   if (room.phase === 'lobby' && room.players.size === 2 && allConnected(room)) {
-    room.phase = 'countdown';
+    setPhase(room, 'countdown');
     room.countdownMsRemaining = COUNTDOWN_MS;
   }
 }
@@ -38,13 +45,13 @@ export function tickRoom(room: Room, dt: number): void {
 
   if (room.phase === 'countdown') {
     if (playerCount < 2 || !allConnected(room)) {
-      room.phase = 'lobby';
+      setPhase(room, 'lobby');
       room.countdownMsRemaining = 0;
       return;
     }
     room.countdownMsRemaining -= dtMs;
     if (room.countdownMsRemaining <= 0) {
-      room.phase = 'playing';
+      setPhase(room, 'playing');
       room.countdownMsRemaining = 0;
     }
     return;
@@ -52,7 +59,7 @@ export function tickRoom(room: Room, dt: number): void {
 
   if (room.phase === 'playing') {
     if (!allConnected(room)) {
-      room.phase = 'paused';
+      setPhase(room, 'paused');
       return;
     }
 
@@ -109,7 +116,7 @@ export function tickRoom(room: Room, dt: number): void {
 
   if (room.phase === 'paused') {
     if (allConnected(room) && playerCount === 2) {
-      room.phase = 'playing';
+      setPhase(room, 'playing');
     }
     return;
   }
