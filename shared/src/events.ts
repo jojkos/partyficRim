@@ -13,6 +13,8 @@ export interface ClientToServerEvents {
   ) => void;
   'phone:input': (args: { dx: number; dy: number }) => void;
   'phone:button': () => void;
+  'phone:select': (args: { index: number; on: boolean }) => void;
+  'phone:quadrant': (args: { index: number }) => void;
   'client:request_start': () => void;
 }
 

@@ -2,6 +2,20 @@ export type Role = 'X' | 'Y';
 export type Mode = 'in_robot' | 'on_foot';
 export type Phase = 'lobby' | 'countdown' | 'playing' | 'paused';
 
+export const ROLE_LABEL: Record<Role, string> = {
+  X: 'DEFENSE OFFICER',
+  Y: 'REPAIR ENGINEER',
+};
+
+export type EventKind = 'select' | 'quadrant' | 'action';
+
+export interface FeedEvent {
+  ts: number;
+  role: Role;
+  kind: EventKind;
+  detail: string;
+}
+
 export interface Vec2 {
   x: number;
   y: number;
@@ -37,6 +51,7 @@ export interface DisplaySnapshot {
   score: number;
   arena: Rect;
   roomCode: string;
+  eventFeed: FeedEvent[];
 }
 
 export interface PhoneSnapshot {
@@ -47,4 +62,6 @@ export interface PhoneSnapshot {
   occupancy: Record<Role, Mode>;
   nearRobot: boolean;
   playerCount: number;
+  selected: [boolean, boolean, boolean, boolean];
+  quadrant: number | null;
 }

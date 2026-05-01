@@ -4,6 +4,7 @@ import { DisplayLobby } from './DisplayLobby.js';
 import { useDisplayState } from './useDisplayState.js';
 import { PixiArena } from './PixiArena.js';
 import { HudOverlay } from './HudOverlay.js';
+import { EventFeed } from './EventFeed.js';
 
 const STORAGE_KEY = 'partyficrim.displayRoomCode';
 
@@ -62,13 +63,21 @@ export function DisplayPage() {
     });
   };
 
+  const events = snap?.eventFeed ?? [];
+
   if (!snap || snap.phase === 'lobby' || snap.phase === 'countdown') {
-    return <DisplayLobby socket={socket} roomCode={roomCode} snap={snap} onResetRoom={onResetRoom} />;
+    return (
+      <>
+        <DisplayLobby socket={socket} roomCode={roomCode} snap={snap} onResetRoom={onResetRoom} />
+        <EventFeed events={events} />
+      </>
+    );
   }
   return (
     <>
       <PixiArena snap={snap} />
       <HudOverlay snap={snap} onResetRoom={onResetRoom} />
+      <EventFeed events={events} />
     </>
   );
 }

@@ -5,6 +5,7 @@ import type {
   Role,
 } from '@partyficrim/shared';
 import type { RoomManager, Room } from '../game/rooms.js';
+import { pushFeed } from '../game/rooms.js';
 import { requestStart } from '../game/tick.js';
 import { log } from '../log.js';
 import { randomUUID } from 'node:crypto';
@@ -127,6 +128,8 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
         connected: true,
         lastInput: { x: 0, y: 0 },
         lastButtonAt: 0,
+        selected: [false, false, false, false],
+        quadrant: null,
       });
       socket.data = { roomCode, playerId: id };
       socket.join(`room:${room.code}:phones`);
@@ -171,9 +174,36 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
       if (!data?.roomCode || !data?.playerId) return;
       const room = mgr.getRoom(data.roomCode);
       const p = room?.players.get(data.playerId);
-      if (!p) return;
+      if (!p || !room) return;
       p.lastButtonAt = Date.now();
+      pushFeed(room, { ts: Date.now(), role: p.role, kind: 'action', detail: p.mode === 'in_robot' ? 'EXIT' : 'ENTER' });
       log('action', `${data.roomCode} button player=${p.role} mode=${p.mode}`);
+    });
+
+    socket.on('phone:select', ({ index, on }) => {
+      const data = socket.data as { roomCode?: string; playerId?: string } | undefined;
+      if (!data?.roomCode || !data?.playerId) return;
+      const room = mgr.getRoom(data.roomCode);
+      const p = room?.players.get(data.playerId);
+      if (!p || !room) return;
+      if (index < 0 || index > 3) return;
+      p.selected[index] = on;
+      pushFeed(room, { ts: Date.now(), role: p.role, kind: 'select', detail: `OPT ${index + 1} ${on ? 'ON' : 'OFF'}` });
+      log('action', `${data.roomCode} select player=${p.role} index=${index} on=${on}`);
+    });
+
+    socket.on('phone:quadrant', ({ index }) => {
+      const data = socket.data as { roomCode?: string; playerId?: string } | undefined;
+      if (!data?.roomCode || !data?.playerId) return;
+      const room = mgr.getRoom(data.roomCode);
+      const p = room?.players.get(data.playerId);
+      if (!p || !room) return;
+      if (index < 0 || index > 3) return;
+      // Toggle: tap same quadrant again to deselect.
+      p.quadrant = p.quadrant === index ? null : index;
+      const labels = ['NW', 'NE', 'SW', 'SE'];
+      pushFeed(room, { ts: Date.now(), role: p.role, kind: 'quadrant', detail: p.quadrant === null ? 'OFF' : `Q-${labels[index]}` });
+      log('action', `${data.roomCode} quadrant player=${p.role} -> ${p.quadrant}`);
     });
 
     socket.on('disconnect', () => {

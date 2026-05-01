@@ -1,14 +1,18 @@
 import { useEffect, useState, useCallback } from 'react';
 import type { PhoneSnapshot, Role } from '@partyficrim/shared';
+import { ROLE_LABEL } from '@partyficrim/shared';
 import type { AppSocket } from '../socket.js';
 import { Joystick } from './Joystick.js';
 import { useLandscape } from './useLandscape.js';
 
 const ROLE_COLOR: Record<Role, string> = { X: '#ff5577', Y: '#55c2ff' };
+const ROLE_NUMBER: Record<Role, number> = { X: 1, Y: 2 };
+
+const QUADRANT_ARROW = ['↖', '↗', '↙', '↘'] as const;
 
 interface Props { socket: AppSocket; role: Role; roomCode: string; }
 
-export function PhoneGame({ socket, role, roomCode }: Props) {
+export function PhoneGame({ socket, role, roomCode: _roomCode }: Props) {
   const [snap, setSnap] = useState<PhoneSnapshot | null>(null);
   const { isLandscape, enterFullscreenLandscape, canFullscreen, isStandalone } = useLandscape();
 
@@ -22,11 +26,19 @@ export function PhoneGame({ socket, role, roomCode }: Props) {
     socket.emit('phone:input', { dx, dy });
   }, [socket]);
 
-  const onButton = useCallback(() => socket.emit('phone:button'), [socket]);
+  const onAction = useCallback(() => socket.emit('phone:button'), [socket]);
+  const onSelect = useCallback((index: number) => {
+    const next = !(snap?.selected[index] ?? false);
+    socket.emit('phone:select', { index, on: next });
+  }, [socket, snap]);
+  const onQuadrant = useCallback((index: number) => {
+    socket.emit('phone:quadrant', { index });
+  }, [socket]);
 
   const lockAxis = snap?.mode === 'on_foot' ? null : (role === 'X' ? 'x' : 'y');
   const color = ROLE_COLOR[role];
-  const enterDisabled = snap?.mode === 'on_foot' && !snap.nearRobot;
+  const actionLabel = snap?.mode === 'on_foot' ? 'ENTER' : 'EXIT';
+  const actionDisabled = snap?.mode === 'on_foot' && !snap.nearRobot;
 
   if (!isLandscape) {
     return (
@@ -53,30 +65,125 @@ export function PhoneGame({ socket, role, roomCode }: Props) {
     <div style={{
       position: 'fixed', inset: 0, width: '100%', height: '100%',
       touchAction: 'none', userSelect: 'none', overflow: 'hidden',
+      display: 'grid',
+      gridTemplateRows: '36px 1fr',
+      background: '#0a0a12',
     }}>
+      {/* Header */}
       <div style={{
-        position: 'absolute', top: 8, left: 0, right: 0, textAlign: 'center',
-        color, fontSize: 18, fontWeight: 800, letterSpacing: 1, zIndex: 2,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        gap: 16, paddingInline: 16, fontSize: 14, fontWeight: 800, letterSpacing: 2,
+        color, borderBottom: '1px solid rgba(255,255,255,0.08)',
       }}>
-        {role}-axis · Score {snap?.score ?? 0}
+        <span style={{ background: color, width: 12, height: 12, display: 'inline-block', borderRadius: 2 }} />
+        <span>PLAYER {ROLE_NUMBER[role]}</span>
+        <span style={{ opacity: 0.6 }}>·</span>
+        <span>{ROLE_LABEL[role]}</span>
       </div>
-      {/* left half is the joystick zone (component positions itself absolutely) */}
-      <Joystick lockAxis={lockAxis} onMove={onMove} color={color} />
-      {/* right half: tap-anywhere button */}
-      <button
-        onClick={onButton}
-        disabled={enterDisabled}
-        style={{
-          position: 'absolute', top: 0, bottom: 0, right: 0, width: '50%',
-          border: 'none',
-          background: enterDisabled ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.06)',
-          color: enterDisabled ? '#666' : color,
-          fontSize: 48, fontWeight: 900, letterSpacing: 4,
-          touchAction: 'none', cursor: 'pointer',
-        }}
-      >
-        {snap?.mode === 'on_foot' ? 'ENTER' : 'EXIT'}
-      </button>
+
+      {/* Three columns */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr 1fr',
+        height: '100%',
+      }}>
+        {/* LEFT: Joystick + Action */}
+        <div style={{
+          position: 'relative',
+          display: 'grid',
+          gridTemplateRows: '1fr auto',
+          padding: 12,
+          borderRight: '1px dashed rgba(255,255,255,0.15)',
+          minHeight: 0,
+        }}>
+          <div style={{ position: 'relative', minHeight: 0 }}>
+            <Joystick lockAxis={lockAxis} onMove={onMove} color={color} />
+          </div>
+          <button
+            onClick={onAction}
+            disabled={actionDisabled}
+            style={{
+              marginTop: 8,
+              padding: '14px 0',
+              fontSize: 18, fontWeight: 800, letterSpacing: 3,
+              border: '1px solid rgba(255,255,255,0.25)',
+              background: actionDisabled ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.06)',
+              color: actionDisabled ? '#666' : color,
+              borderRadius: 8,
+              cursor: actionDisabled ? 'not-allowed' : 'pointer',
+            }}
+          >
+            ⊙ {actionLabel}
+          </button>
+        </div>
+
+        {/* MIDDLE: 2x2 selection */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gridTemplateRows: '1fr 1fr',
+          gap: 10,
+          padding: 12,
+          borderRight: '1px dashed rgba(255,255,255,0.15)',
+        }}>
+          {[0, 1, 2, 3].map((i) => {
+            const on = snap?.selected[i] ?? false;
+            return (
+              <button
+                key={i}
+                onClick={() => onSelect(i)}
+                style={{
+                  border: `2px solid ${on ? color : 'rgba(255,255,255,0.25)'}`,
+                  background: on ? color : 'transparent',
+                  color: on ? '#0a0a12' : '#fff',
+                  fontSize: 16, fontWeight: 800, letterSpacing: 2,
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  flexDirection: 'column',
+                  gap: 4,
+                }}
+              >
+                <span style={{
+                  width: 24, height: 24,
+                  border: `2px solid ${on ? '#0a0a12' : 'rgba(255,255,255,0.6)'}`,
+                  borderRadius: 4,
+                }} />
+                <span>OPT {i + 1}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* RIGHT: 2x2 quadrant */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gridTemplateRows: '1fr 1fr',
+          gap: 10,
+          padding: 12,
+        }}>
+          {[0, 1, 2, 3].map((i) => {
+            const on = snap?.quadrant === i;
+            return (
+              <button
+                key={i}
+                onClick={() => onQuadrant(i)}
+                style={{
+                  border: `2px solid ${on ? color : 'rgba(255,255,255,0.25)'}`,
+                  background: on ? color : 'transparent',
+                  color: on ? '#0a0a12' : '#fff',
+                  fontSize: 32, fontWeight: 800,
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                }}
+              >
+                {QUADRANT_ARROW[i]}
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }

@@ -135,6 +135,7 @@ export function buildDisplaySnapshot(room: Room): DisplaySnapshot {
     score: room.score,
     arena: { ...room.arena },
     roomCode: room.code,
+    eventFeed: room.eventFeed.slice(),
   };
 }
 
@@ -150,5 +151,7 @@ export function buildPhoneSnapshot(room: Room, playerId: string): PhoneSnapshot 
     occupancy,
     nearRobot: me.mode === 'on_foot' ? isNearRobot(me.pos, room.robot, TILE) : true,
     playerCount: room.players.size,
+    selected: [me.selected[0], me.selected[1], me.selected[2], me.selected[3]],
+    quadrant: me.quadrant,
   };
 }

@@ -29,12 +29,12 @@ export function Joystick({ lockAxis, onMove, color }: Props) {
     return () => manager.destroy();
   }, [lockAxis, color, onMove]);
 
-  // Zone fills the entire left half of the screen — touch anywhere activates the stick at that point.
+  // Zone fills the parent. Tap anywhere inside it to spawn the joystick at that point.
   return (
     <div
       ref={ref}
       style={{
-        position: 'absolute', top: 0, bottom: 0, left: 0, width: '50%',
+        position: 'absolute', inset: 0,
         touchAction: 'none', userSelect: 'none',
       }}
     />

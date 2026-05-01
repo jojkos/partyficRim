@@ -10,6 +10,7 @@ function makeRoomWithPlayers(count: 0 | 1 | 2) {
       id: 'p1', sessionId: 's1', role: 'X', mode: 'in_robot',
       pos: { x: room.robot.x, y: room.robot.y }, connected: true,
       lastInput: { x: 0, y: 0 }, lastButtonAt: 0,
+      selected: [false, false, false, false], quadrant: null,
     });
   }
   if (count >= 2) {
@@ -17,6 +18,7 @@ function makeRoomWithPlayers(count: 0 | 1 | 2) {
       id: 'p2', sessionId: 's2', role: 'Y', mode: 'in_robot',
       pos: { x: room.robot.x, y: room.robot.y }, connected: true,
       lastInput: { x: 0, y: 0 }, lastButtonAt: 0,
+      selected: [false, false, false, false], quadrant: null,
     });
   }
   return { mgr, room };
