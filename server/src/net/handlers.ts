@@ -75,7 +75,17 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
         log('room', `${roomCode} display join refused: no_such_room`);
         return cb({ ok: false, error: 'no_such_room' });
       }
+
+      // Leave any previous display channel + remember the new code so end_room
+      // can find and tear down THIS room later.
+      const prev = (socket.data as { displayRoomCode?: string } | undefined)?.displayRoomCode;
+      if (prev && prev !== room.code) {
+        socket.leave(`room:${prev}:display`);
+        log('room', `${prev} display channel left during join_room`);
+      }
+
       socket.join(`room:${room.code}:display`);
+      socket.data = { ...(socket.data ?? {}), displayRoomCode: room.code };
       log('room', `${roomCode} display joined`);
       cb({ ok: true });
     });
@@ -169,14 +179,36 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
     socket.on('disconnect', () => {
       const data = socket.data as { roomCode?: string; playerId?: string; displayRoomCode?: string } | undefined;
       log('net', `disconnect ${socket.id}${data?.playerId ? ` player=${data.playerId.slice(0, 8)}` : ''}${data?.displayRoomCode ? ` display-of=${data.displayRoomCode}` : ''}`);
-      if (!data?.roomCode || !data?.playerId) return;
-      const room = mgr.getRoom(data.roomCode);
-      const p = room?.players.get(data.playerId);
-      if (p) {
-        p.connected = false;
-        log('room', `${data.roomCode} player ${p.role} disconnected`);
+
+      // Display socket disconnected — tear down its room so we don't pile up
+      // orphan rooms each time a display tab closes / refreshes.
+      if (data?.displayRoomCode) {
+        const oldCode = data.displayRoomCode;
+        const room = mgr.getRoom(oldCode);
+        if (room) {
+          io.to(`room:${oldCode}:phones`).emit('room:ended');
+          for (const [pid, s] of socketByPlayerId) {
+            const sd = s.data as { roomCode?: string } | undefined;
+            if (sd?.roomCode === oldCode) {
+              socketByPlayerId.delete(pid);
+              s.data = {};
+              s.leave(`room:${oldCode}:phones`);
+            }
+          }
+          mgr.removeRoom(oldCode);
+          log('room', `${oldCode} cleaned up on display disconnect`);
+        }
       }
-      if (data.playerId) socketByPlayerId.delete(data.playerId);
+
+      if (data?.playerId) {
+        const room = mgr.getRoom(data.roomCode ?? '');
+        const p = room?.players.get(data.playerId);
+        if (p) {
+          p.connected = false;
+          log('room', `${data.roomCode} player ${p.role} disconnected`);
+        }
+        socketByPlayerId.delete(data.playerId);
+      }
     });
   });
 }

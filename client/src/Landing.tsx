@@ -8,7 +8,7 @@ export function Landing() {
     }}>
       <h1 style={{ fontSize: 64, margin: 0, letterSpacing: 6 }}>polarArena</h1>
       <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', justifyContent: 'center' }}>
-        <Link to="/display" style={btn('#88ddaa', '#0a0a12')}>HOST</Link>
+        <Link to="/display?new=1" style={btn('#88ddaa', '#0a0a12')}>HOST</Link>
         <Link to="/play" style={btn('#55c2ff', '#0a0a12')}>JOIN</Link>
       </div>
       <div style={{ fontSize: 16, opacity: 0.6, maxWidth: 400 }}>

@@ -45,6 +45,15 @@ export function PlayPage() {
   const [error, setError] = useState<string | null>(null);
   const [snap, setSnap] = useState<PhoneSnapshot | null>(null);
 
+  // Disconnect on unmount — kills the StrictMode orphan socket from the
+  // discarded first useMemo factory call.
+  useEffect(() => {
+    return () => {
+      console.log('[phone] disconnecting socket', socket.id);
+      socket.disconnect();
+    };
+  }, [socket]);
+
   useEffect(() => {
     if (!roomCode || roomCode.length !== 4) return;
     const session = loadSession();
@@ -64,13 +73,21 @@ export function PlayPage() {
   }, [socket, roomCode]);
 
   useEffect(() => {
-    const h = (s: PhoneSnapshot) => setSnap(s);
+    let lastPhase = '';
+    const h = (s: PhoneSnapshot) => {
+      if (s.phase !== lastPhase) {
+        console.log(`[phone] phase ${lastPhase || '(none)'} -> ${s.phase}`);
+        lastPhase = s.phase;
+      }
+      setSnap(s);
+    };
     socket.on('phone:state', h);
     return () => { socket.off('phone:state', h); };
   }, [socket]);
 
   useEffect(() => {
     const onEnded = () => {
+      console.log('[phone] room:ended received');
       clearSession();
       // Strip ?room= so a refresh doesn't try to rejoin the dead room.
       window.history.replaceState({}, '', '/play');
