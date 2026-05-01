@@ -1,25 +1,43 @@
+import { useEffect, useState } from 'react';
 import type { PhoneSnapshot, Role } from '@partyficrim/shared';
+import { ROLE_LABEL } from '@partyficrim/shared';
 import type { AppSocket } from '../socket.js';
 import { useLandscape } from './useLandscape.js';
 
-const ROLE_COLOR: Record<Role, string> = { X: '#ff5577', Y: '#55c2ff' };
+const ROLE_COLOR: Record<Role, string> = { defense: '#ff5577', repair: '#55c2ff', weapons: '#ffe066' };
+const ROLES: Role[] = ['defense', 'repair', 'weapons'];
 
 interface Props {
   socket: AppSocket;
-  role: Role;
+  role: Role | null;
   roomCode: string;
   snap: PhoneSnapshot | null;
+  onLeave: () => void;
 }
 
-export function PhoneLobby({ socket, role, roomCode, snap }: Props) {
+export function PhoneLobby({ socket, role, roomCode, snap, onLeave }: Props) {
   const { enterFullscreenLandscape, canFullscreen, isIOS, isStandalone } = useLandscape();
-  const color = ROLE_COLOR[role];
+  const [pendingRole, setPendingRole] = useState<Role | null>(null);
+  const color = role ? ROLE_COLOR[role] : '#88ddaa';
 
   const playerCount = snap?.playerCount ?? 1;
-  const canStart = playerCount === 2 && snap?.phase === 'lobby';
+  const claims = snap?.roleClaims;
+  const allClaimed = Boolean(claims?.defense && claims.repair && claims.weapons);
+  const canStart = playerCount >= 3 && allClaimed && snap?.phase === 'lobby';
   const showCountdown = snap?.phase === 'countdown';
 
   const onStart = () => socket.emit('client:request_start');
+  const onClaim = (next: Role) => {
+    const desired = role === next ? null : next;
+    setPendingRole(desired);
+    socket.emit('phone:claim_role', { role: desired }, (res) => {
+      if (!res.ok) setPendingRole(null);
+    });
+  };
+
+  useEffect(() => {
+    if (pendingRole === role) setPendingRole(null);
+  }, [pendingRole, role]);
 
   return (
     <div style={{
@@ -27,13 +45,53 @@ export function PhoneLobby({ socket, role, roomCode, snap }: Props) {
       height: '100%', gap: 18, padding: 20, textAlign: 'center',
     }}>
       <div style={{ fontSize: 16, opacity: 0.7 }}>Room {roomCode}</div>
-      <div style={{ fontSize: 26 }}>You are</div>
-      <div style={{ fontSize: 72, fontWeight: 800, color }}>{role}-axis</div>
+      <button
+        onClick={onLeave}
+        style={{
+          position: 'fixed', top: 12, right: 12,
+          padding: '8px 12px', borderRadius: 8,
+          border: '1px solid rgba(255,255,255,0.22)',
+          background: 'rgba(255,255,255,0.06)', color: '#ddd',
+          fontWeight: 700,
+        }}
+      >
+        Leave
+      </button>
+      <div style={{ fontSize: 26 }}>Pick your station</div>
 
       {showCountdown ? (
         <div style={{ fontSize: 32, fontWeight: 700 }}>Starting…</div>
       ) : (
         <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(120px, 1fr))', gap: 12, width: 'min(680px, 100%)' }}>
+            {ROLES.map((r) => {
+              const claimedBy = claims?.[r] ?? null;
+              const claimed = Boolean(claimedBy);
+              const mine = (pendingRole ?? role) === r;
+              const disabled = claimed && !mine;
+              return (
+                <button
+                  key={r}
+                  onClick={() => onClaim(r)}
+                  disabled={disabled}
+                  style={{
+                    minHeight: 104,
+                    padding: 12,
+                    borderRadius: 10,
+                    border: `2px solid ${mine ? ROLE_COLOR[r] : 'rgba(255,255,255,0.2)'}`,
+                    background: mine ? ROLE_COLOR[r] : disabled ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.08)',
+                    color: mine ? '#0a0a12' : disabled ? '#666' : '#fff',
+                    fontSize: 14,
+                    fontWeight: 800,
+                    letterSpacing: 1,
+                    cursor: disabled ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {ROLE_LABEL[r]}
+                </button>
+              );
+            })}
+          </div>
           {canFullscreen && !isStandalone && (
             <button onClick={enterFullscreenLandscape} style={{
               padding: '12px 24px', fontSize: 18, borderRadius: 10, border: 'none',
@@ -74,7 +132,7 @@ export function PhoneLobby({ socket, role, roomCode, snap }: Props) {
           <div style={{ fontSize: 14, opacity: 0.6 }}>
             {canStart
               ? 'Anyone can press START'
-              : `Waiting for other player… (${playerCount}/2)`}
+              : `Waiting for 3 roles… (${playerCount}/3)`}
           </div>
         </>
       )}

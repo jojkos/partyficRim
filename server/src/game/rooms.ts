@@ -1,13 +1,29 @@
-import type { FeedEvent, Phase, PlayerState, PowerupState, Rect, Vec2 } from '@partyficrim/shared';
-
-export type Quadrant = 0 | 1 | 2 | 3;
+import type {
+  AttackKind,
+  AttackState,
+  BombState,
+  CoreState,
+  CoreType,
+  EnemyState,
+  FeedEvent,
+  Phase,
+  PlayerState,
+  Quadrant,
+  QuadrantHp,
+  Rect,
+  Role,
+  Vec2,
+} from '@partyficrim/shared';
 
 export interface RoomPlayer extends PlayerState {
   sessionId: string;
   lastInput: Vec2;
   lastButtonAt: number;
-  selected: [boolean, boolean, boolean, boolean];
-  quadrant: number | null;
+  inventory: CoreType[];
+  selectedCores: number[];
+  weaponSelectedCores: CoreType[];
+  selectedAttackKind: AttackKind | null;
+  quadrant: Quadrant | null;
 }
 
 export interface Room {
@@ -16,12 +32,19 @@ export interface Room {
   countdownMsRemaining: number;
   robot: Vec2;
   players: Map<string, RoomPlayer>;
-  powerups: Map<string, PowerupState>;
+  cores: Map<string, CoreState>;
+  enemies: Map<string, EnemyState>;
   obstacles: Rect[];
   arena: Rect;
-  score: number;
+  quadrantHp: QuadrantHp;
+  shieldQuadrant: Quadrant | null;
+  attackQuadrant: Quadrant | null;
+  bombs: Array<BombState & { fuseAt: number }>;
+  attacks: AttackState[];
   createdAt: number;
-  lastPowerupSpawnAt: number;
+  lastCoreSpawnAt: number;
+  lastEnemySpawnAt: number;
+  lastEnemyContactDamageAt: number;
   eventFeed: FeedEvent[];
 }
 
@@ -54,16 +77,23 @@ export class RoomManager {
       countdownMsRemaining: 0,
       robot: { x: 400, y: 300 },
       players: new Map(),
-      powerups: new Map(),
+      cores: new Map(),
+      enemies: new Map(),
       obstacles: [
         { x: 200, y: 150, w: 60, h: 60 },
         { x: 540, y: 400, w: 80, h: 40 },
         { x: 350, y: 480, w: 40, h: 80 },
       ],
       arena: { x: 0, y: 0, w: 800, h: 600 },
-      score: 0,
+      quadrantHp: { 0: 100, 1: 100, 2: 100, 3: 100 },
+      shieldQuadrant: null,
+      attackQuadrant: null,
+      bombs: [],
+      attacks: [],
       createdAt: Date.now(),
-      lastPowerupSpawnAt: 0,
+      lastCoreSpawnAt: 0,
+      lastEnemySpawnAt: 0,
+      lastEnemyContactDamageAt: 0,
       eventFeed: [],
     };
     this.rooms.set(code, room);
@@ -81,4 +111,27 @@ export class RoomManager {
   iterRooms(): IterableIterator<Room> {
     return this.rooms.values();
   }
+}
+
+export function roleClaims(room: Room): Record<Role, string | null> {
+  return {
+    defense: [...room.players.values()].find((p) => p.connected && p.role === 'defense')?.id ?? null,
+    repair: [...room.players.values()].find((p) => p.connected && p.role === 'repair')?.id ?? null,
+    weapons: [...room.players.values()].find((p) => p.connected && p.role === 'weapons')?.id ?? null,
+  };
+}
+
+export function playerForRole(room: Room, role: Role): RoomPlayer | undefined {
+  return [...room.players.values()].find((p) => p.role === role);
+}
+
+export function addAttack(room: Room, kind: AttackKind, quadrant: Quadrant, colors: string[], pos?: Vec2): void {
+  room.attacks.push({
+    id: `${Date.now()}-${Math.random()}`,
+    kind,
+    quadrant,
+    ttlMsRemaining: kind === 'bomb' ? 900 : 450,
+    colors,
+    pos: pos ? { x: pos.x, y: pos.y } : undefined,
+  });
 }

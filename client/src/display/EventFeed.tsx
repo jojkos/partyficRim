@@ -1,6 +1,10 @@
 import type { FeedEvent, Role } from '@partyficrim/shared';
 
-const ROLE_COLOR: Record<Role, string> = { X: '#ff5577', Y: '#55c2ff' };
+const ROLE_COLOR: Record<Role, string> = {
+  defense: '#ff5577',
+  repair: '#55c2ff',
+  weapons: '#ffe066',
+};
 
 interface Props {
   events: FeedEvent[];
@@ -25,6 +29,10 @@ export function EventFeed({ events }: Props) {
     <div style={feedFrame()}>
       <div style={feedTitle()}>EVENT FEED</div>
       {events.slice().reverse().map((e, i) => (
+        (() => {
+          const role = e.role ?? 'room';
+          const color = e.role ? ROLE_COLOR[e.role] : '#aaa';
+          return (
         <div key={`${e.ts}-${i}`} style={{
           fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
           fontSize: 12,
@@ -33,9 +41,11 @@ export function EventFeed({ events }: Props) {
           opacity: i === 0 ? 1 : Math.max(0.3, 1 - i * 0.06),
         }}>
           <span style={{ opacity: 0.5, color: '#aaa' }}>{formatTime(e.ts)}</span>
-          <span style={{ color: ROLE_COLOR[e.role], fontWeight: 700 }}>[{e.role}]</span>
+          <span style={{ color, fontWeight: 700 }}>[{role}]</span>
           <span>{e.detail}</span>
         </div>
+          );
+        })()
       ))}
     </div>
   );

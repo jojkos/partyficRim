@@ -20,9 +20,11 @@ export function DisplayLobby({ socket, roomCode, snap, onResetRoom }: Props) {
   }, [roomCode]);
 
   const playerCount = snap?.players.length ?? 0;
+  const claims = snap?.roleClaims;
+  const allClaimed = Boolean(claims?.defense && claims.repair && claims.weapons);
   const countdown = snap?.phase === 'countdown'
     ? Math.ceil(snap.countdownMsRemaining / 1000) : null;
-  const canStart = playerCount === 2 && snap?.phase === 'lobby';
+  const canStart = playerCount >= 3 && allClaimed && snap?.phase === 'lobby';
 
   const onStart = () => socket.emit('client:request_start');
 
@@ -40,7 +42,12 @@ export function DisplayLobby({ socket, roomCode, snap, onResetRoom }: Props) {
           <div style={{ fontSize: 22, opacity: 0.7 }}>
             Or visit <code>{window.location.host}/play</code>
           </div>
-          <div style={{ fontSize: 26 }}>Players ({playerCount}/2)</div>
+          <div style={{ fontSize: 26 }}>Players ({playerCount}/3)</div>
+          <div style={{ display: 'flex', gap: 12, fontSize: 16, opacity: 0.75 }}>
+            <span>Defense {claims?.defense ? '✓' : '—'}</span>
+            <span>Repair {claims?.repair ? '✓' : '—'}</span>
+            <span>Weapons {claims?.weapons ? '✓' : '—'}</span>
+          </div>
           <button
             onClick={onStart}
             disabled={!canStart}
@@ -60,7 +67,7 @@ export function DisplayLobby({ socket, roomCode, snap, onResetRoom }: Props) {
             START
           </button>
           <div style={{ fontSize: 14, opacity: 0.5 }}>
-            {canStart ? 'Anyone can press start (display or phone)' : 'Waiting for both players to join…'}
+            {canStart ? 'Anyone can press start (display or phone)' : 'Waiting for three claimed roles…'}
           </div>
           <button
             onClick={onResetRoom}

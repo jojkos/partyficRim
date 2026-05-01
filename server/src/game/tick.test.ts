@@ -1,24 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import { RoomManager } from './rooms.js';
 import { tickRoom, buildDisplaySnapshot, buildPhoneSnapshot, requestStart } from './tick.js';
+import type { Role } from '@partyficrim/shared';
 
-function makeRoomWithPlayers(count: 0 | 1 | 2) {
+const roles: Role[] = ['defense', 'repair', 'weapons'];
+
+function makeRoomWithPlayers(count: 0 | 1 | 2 | 3) {
   const mgr = new RoomManager();
   const room = mgr.createRoom();
-  if (count >= 1) {
-    room.players.set('p1', {
-      id: 'p1', sessionId: 's1', role: 'X', mode: 'in_robot',
+  for (let i = 0; i < count; i++) {
+    const id = `p${i + 1}`;
+    room.players.set(id, {
+      id, sessionId: `s${i + 1}`, role: roles[i] ?? null, mode: 'in_robot',
       pos: { x: room.robot.x, y: room.robot.y }, connected: true,
       lastInput: { x: 0, y: 0 }, lastButtonAt: 0,
-      selected: [false, false, false, false], quadrant: null,
-    });
-  }
-  if (count >= 2) {
-    room.players.set('p2', {
-      id: 'p2', sessionId: 's2', role: 'Y', mode: 'in_robot',
-      pos: { x: room.robot.x, y: room.robot.y }, connected: true,
-      lastInput: { x: 0, y: 0 }, lastButtonAt: 0,
-      selected: [false, false, false, false], quadrant: null,
+      inventory: [], selectedCores: [], weaponSelectedCores: [], selectedAttackKind: null, quadrant: null,
     });
   }
   return { mgr, room };
@@ -35,19 +31,19 @@ describe('phase transitions', () => {
     expect(r2.phase).toBe('lobby');
   });
 
-  it('requestStart only transitions to countdown when 2 players are connected', () => {
+  it('requestStart only transitions to countdown when 3 roles are claimed and connected', () => {
     const { room: r1 } = makeRoomWithPlayers(1);
     requestStart(r1);
     expect(r1.phase).toBe('lobby');
 
-    const { room: r2 } = makeRoomWithPlayers(2);
+    const { room: r2 } = makeRoomWithPlayers(3);
     requestStart(r2);
     expect(r2.phase).toBe('countdown');
     expect(r2.countdownMsRemaining).toBeGreaterThan(0);
   });
 
   it('transitions to playing after countdown finishes', () => {
-    const { room } = makeRoomWithPlayers(2);
+    const { room } = makeRoomWithPlayers(3);
     requestStart(room);
     expect(room.phase).toBe('countdown');
     for (let i = 0; i < 110; i++) tickRoom(room, 0.033);
@@ -55,7 +51,7 @@ describe('phase transitions', () => {
   });
 
   it('pauses when a player disconnects mid-game', () => {
-    const { room } = makeRoomWithPlayers(2);
+    const { room } = makeRoomWithPlayers(3);
     requestStart(room);
     for (let i = 0; i < 200; i++) tickRoom(room, 0.033);
     expect(room.phase).toBe('playing');
@@ -66,7 +62,7 @@ describe('phase transitions', () => {
   });
 
   it('resumes when player reconnects', () => {
-    const { room } = makeRoomWithPlayers(2);
+    const { room } = makeRoomWithPlayers(3);
     requestStart(room);
     for (let i = 0; i < 200; i++) tickRoom(room, 0.033);
     const p1 = room.players.get('p1');
@@ -93,9 +89,9 @@ describe('snapshots', () => {
   it('buildPhoneSnapshot includes own role and occupancy', () => {
     const { room } = makeRoomWithPlayers(2);
     const snap = buildPhoneSnapshot(room, 'p1');
-    expect(snap.role).toBe('X');
+    expect(snap.role).toBe('defense');
     expect(snap.mode).toBe('in_robot');
-    expect(snap.occupancy.X).toBe('in_robot');
-    expect(snap.occupancy.Y).toBe('in_robot');
+    expect(snap.occupancy.defense).toBe('in_robot');
+    expect(snap.occupancy.repair).toBe('in_robot');
   });
 });
