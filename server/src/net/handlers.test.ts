@@ -628,3 +628,217 @@ describe('phone:input safety', () => {
     expect(m).toBeCloseTo(1, 5);
   });
 });
+
+describe('client:restart_room', () => {
+  it('resets the room in place and returns the same code', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+
+    const p1 = await connect();
+    const p2 = await connect();
+    const p3 = await connect();
+    await joinAndClaim(p1, code, 'defense');
+    await joinAndClaim(p2, code, 'repair');
+    await joinAndClaim(p3, code, 'weapons');
+
+    const room = mgr.getRoom(code)!;
+    room.phase = 'gameover';
+    room.quadrantHp = { 0: 0, 1: 15, 2: 30, 3: 45 };
+
+    const res = await new Promise<{ ok: boolean; newRoomCode?: string }>((resolve) => {
+      display.emit('client:restart_room', (r) => resolve(r));
+    });
+
+    expect(res.ok).toBe(true);
+    expect(res.newRoomCode).toBe(code); // same code
+    expect(room.phase).toBe('lobby');
+    expect(room.quadrantHp).toEqual({ 0: 100, 1: 100, 2: 100, 3: 100 });
+  });
+
+  it('resets player state (mode, inventory, etc)', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+
+    const p1 = await connect();
+    await joinAndClaim(p1, code, 'defense');
+
+    const room = mgr.getRoom(code)!;
+    const player = [...room.players.values()][0]!;
+    player.mode = 'on_foot';
+    player.inventory = ['red', 'blue'];
+    player.selectedCores = [0, 1];
+
+    await new Promise<void>((resolve) => {
+      display.emit('client:restart_room', () => resolve());
+    });
+
+    expect(player.mode).toBe('in_robot');
+    expect(player.inventory).toEqual([]);
+    expect(player.selectedCores).toEqual([]);
+  });
+
+  it('returns error when room does not exist', async () => {
+    const orphan = await connect();
+    const res = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
+      orphan.emit('client:restart_room', (r) => resolve(r));
+    });
+    expect(res.ok).toBe(false);
+  });
+});
+
+describe('phone:leave', () => {
+  it('removes the player from the room', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+
+    const phone = await connect();
+    const joinRes = await emitPhoneJoin(phone, code);
+    expect(joinRes.ok).toBe(true);
+    expect(mgr.getRoom(code)!.players.size).toBe(1);
+
+    const leaveRes = await new Promise<{ ok: boolean }>((resolve) => {
+      phone.emit('phone:leave', (r) => resolve(r));
+    });
+    expect(leaveRes.ok).toBe(true);
+    expect(mgr.getRoom(code)!.players.size).toBe(0);
+  });
+
+  it('reverts countdown to lobby when a player leaves', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+
+    const p1 = await connect();
+    const p2 = await connect();
+    const p3 = await connect();
+    await joinAndClaim(p1, code, 'defense');
+    await joinAndClaim(p2, code, 'repair');
+    await joinAndClaim(p3, code, 'weapons');
+
+    p1.emit('client:request_start');
+    await sleep(50);
+    expect(mgr.getRoom(code)!.phase).toBe('countdown');
+
+    await new Promise<void>((resolve) => {
+      p3.emit('phone:leave', () => resolve());
+    });
+    expect(mgr.getRoom(code)!.phase).toBe('lobby');
+  });
+});
+
+describe('phone:select', () => {
+  it('defense can toggle core selection', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+    const defense = await connect();
+    await joinAndClaim(defense, code, 'defense');
+
+    // Give inventory to the player
+    const room = mgr.getRoom(code)!;
+    const player = [...room.players.values()].find((p) => p.role === 'defense')!;
+    player.inventory = ['red', 'blue', 'green', 'yellow'];
+
+    defense.emit('phone:select', { index: 0, on: true });
+    await sleep(50);
+    expect(player.selectedCores).toContain(0);
+
+    defense.emit('phone:select', { index: 2, on: true });
+    await sleep(50);
+    expect(player.selectedCores).toEqual([0, 2]);
+
+    // deselect
+    defense.emit('phone:select', { index: 0, on: false });
+    await sleep(50);
+    expect(player.selectedCores).toEqual([2]);
+  });
+
+  it('capped at 2 selected cores', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+    const defense = await connect();
+    await joinAndClaim(defense, code, 'defense');
+
+    const room = mgr.getRoom(code)!;
+    const player = [...room.players.values()].find((p) => p.role === 'defense')!;
+    player.inventory = ['red', 'blue', 'green', 'yellow'];
+
+    defense.emit('phone:select', { index: 0, on: true });
+    defense.emit('phone:select', { index: 1, on: true });
+    defense.emit('phone:select', { index: 2, on: true }); // should be ignored
+    await sleep(100);
+    expect(player.selectedCores.length).toBe(2);
+  });
+
+  it('ignores select when player is on foot', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+    const defense = await connect();
+    await joinAndClaim(defense, code, 'defense');
+
+    const room = mgr.getRoom(code)!;
+    const player = [...room.players.values()].find((p) => p.role === 'defense')!;
+    player.inventory = ['red', 'blue'];
+    player.mode = 'on_foot';
+
+    defense.emit('phone:select', { index: 0, on: true });
+    await sleep(50);
+    expect(player.selectedCores).toEqual([]);
+  });
+});
+
+describe('phone:fire', () => {
+  it('fires an attack when playing with a quadrant selected', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+    const defense = await connect();
+    const repair = await connect();
+    const weapons = await connect();
+    await joinAndClaim(defense, code, 'defense');
+    await joinAndClaim(repair, code, 'repair');
+    await joinAndClaim(weapons, code, 'weapons');
+
+    const room = mgr.getRoom(code)!;
+    room.phase = 'playing';
+
+    const weaponsPlayer = [...room.players.values()].find((p) => p.role === 'weapons')!;
+    weaponsPlayer.quadrant = 2;
+
+    weapons.emit('phone:fire', { kind: 'melee' });
+    await sleep(50);
+    expect(room.attacks.length).toBeGreaterThanOrEqual(1);
+    expect(room.attacks.at(-1)?.kind).toBe('melee');
+  });
+
+  it('ignores fire when not in playing phase', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+    const weapons = await connect();
+    await joinAndClaim(weapons, code, 'weapons');
+
+    const room = mgr.getRoom(code)!;
+    room.phase = 'lobby';
+
+    weapons.emit('phone:fire', { kind: 'melee' });
+    await sleep(50);
+    expect(room.attacks.length).toBe(0);
+  });
+
+  it('ignores fire when no quadrant is selected', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+    const defense = await connect();
+    const repair = await connect();
+    const weapons = await connect();
+    await joinAndClaim(defense, code, 'defense');
+    await joinAndClaim(repair, code, 'repair');
+    await joinAndClaim(weapons, code, 'weapons');
+
+    const room = mgr.getRoom(code)!;
+    room.phase = 'playing';
+    // quadrant is null by default
+
+    weapons.emit('phone:fire', { kind: 'melee' });
+    await sleep(50);
+    expect(room.attacks.length).toBe(0);
+  });
+});
+

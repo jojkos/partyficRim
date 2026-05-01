@@ -67,10 +67,9 @@ export function DisplayPage() {
   }, [socket]);
 
   const onResetRoom = () => {
-    console.log('[display] end_room requested');
-    socket.emit('client:restart_room', ({ ok, newRoomCode }) => {
-      if (!ok || !newRoomCode) return;
-      console.log('[display] room restarted ->', newRoomCode);
+    console.log('[display] new_game requested');
+    socket.emit('display:end_room', ({ newRoomCode }) => {
+      console.log('[display] new room ->', newRoomCode);
       localStorage.setItem(STORAGE_KEY, newRoomCode);
       setRoomCode(newRoomCode);
     });
