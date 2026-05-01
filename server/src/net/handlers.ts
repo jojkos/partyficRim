@@ -5,6 +5,7 @@ import type {
   Role,
 } from '@polararena/shared';
 import type { RoomManager, Room } from '../game/rooms.js';
+import { requestStart } from '../game/tick.js';
 import { randomUUID } from 'node:crypto';
 
 type IO = Server<ClientToServerEvents, ServerToClientEvents>;
@@ -23,8 +24,16 @@ function nextRole(room: Room): Role | undefined {
 export function registerHandlers(io: IO, mgr: RoomManager) {
   io.on('connection', (socket: S) => {
     socket.on('display:create_room', (cb) => {
+      // Idempotent per socket: if this socket already owns a live room, return it.
+      // Prevents StrictMode / double-mount from creating duplicate rooms.
+      const existing = (socket.data as { displayRoomCode?: string } | undefined)?.displayRoomCode;
+      if (existing && mgr.getRoom(existing)) {
+        cb({ roomCode: existing });
+        return;
+      }
       const room = mgr.createRoom();
       socket.join(`room:${room.code}:display`);
+      socket.data = { ...(socket.data ?? {}), displayRoomCode: room.code };
       cb({ roomCode: room.code });
     });
 
@@ -82,6 +91,17 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
       // clamp magnitude to 1; quantize per role/mode applied in tick
       const mag = Math.hypot(dx, dy);
       p.lastInput = mag > 1 ? { x: dx / mag, y: dy / mag } : { x: dx, y: dy };
+    });
+
+    socket.on('client:request_start', () => {
+      // Anyone (display or phone) can press start. Honored only when room is in
+      // lobby with both players connected. Otherwise silently ignored.
+      const data = socket.data as { roomCode?: string; displayRoomCode?: string } | undefined;
+      const code = data?.roomCode ?? data?.displayRoomCode;
+      if (!code) return;
+      const room = mgr.getRoom(code);
+      if (!room) return;
+      requestStart(room);
     });
 
     socket.on('phone:button', () => {

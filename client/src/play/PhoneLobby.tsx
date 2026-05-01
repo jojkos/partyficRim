@@ -1,25 +1,72 @@
-import type { Role } from '@polararena/shared';
+import type { PhoneSnapshot, Role } from '@polararena/shared';
+import type { AppSocket } from '../socket.js';
 import { useLandscape } from './useLandscape.js';
 
 const ROLE_COLOR: Record<Role, string> = { X: '#ff5577', Y: '#55c2ff' };
 
-export function PhoneLobby({ role, roomCode }: { role: Role; roomCode: string }) {
+interface Props {
+  socket: AppSocket;
+  role: Role;
+  roomCode: string;
+  snap: PhoneSnapshot | null;
+}
+
+export function PhoneLobby({ socket, role, roomCode, snap }: Props) {
   const { enterFullscreenLandscape } = useLandscape();
+  const color = ROLE_COLOR[role];
+
+  const playerCount = snap?.playerCount ?? 1;
+  const canStart = playerCount === 2 && snap?.phase === 'lobby';
+  const showCountdown = snap?.phase === 'countdown';
+
+  const onStart = () => socket.emit('client:request_start');
+
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-      height: '100vh', gap: 24, padding: 24, textAlign: 'center',
+      height: '100vh', gap: 18, padding: 20, textAlign: 'center',
     }}>
-      <div style={{ fontSize: 18, opacity: 0.7 }}>Room {roomCode}</div>
-      <div style={{ fontSize: 36 }}>You are</div>
-      <div style={{ fontSize: 96, fontWeight: 800, color: ROLE_COLOR[role] }}>{role}-axis</div>
-      <button onClick={enterFullscreenLandscape} style={{
-        padding: '16px 32px', fontSize: 24, borderRadius: 12, border: 'none',
-        background: ROLE_COLOR[role], color: '#fff', fontWeight: 700,
-      }}>
-        Tap to enter fullscreen
-      </button>
-      <div style={{ fontSize: 16, opacity: 0.6 }}>Hold phone in landscape · waiting for other player…</div>
+      <div style={{ fontSize: 16, opacity: 0.7 }}>Room {roomCode}</div>
+      <div style={{ fontSize: 26 }}>You are</div>
+      <div style={{ fontSize: 72, fontWeight: 800, color }}>{role}-axis</div>
+
+      {showCountdown ? (
+        <div style={{ fontSize: 32, fontWeight: 700 }}>Starting…</div>
+      ) : (
+        <>
+          <button onClick={enterFullscreenLandscape} style={{
+            padding: '12px 24px', fontSize: 18, borderRadius: 10, border: 'none',
+            background: 'rgba(255,255,255,0.1)', color: '#fff', fontWeight: 600,
+          }}>
+            Tap to enter fullscreen
+          </button>
+
+          <button
+            onClick={onStart}
+            disabled={!canStart}
+            style={{
+              marginTop: 8,
+              padding: '20px 40px',
+              fontSize: 28,
+              fontWeight: 800,
+              letterSpacing: 3,
+              borderRadius: 14,
+              border: 'none',
+              background: canStart ? '#88ddaa' : '#333',
+              color: canStart ? '#0a0a12' : '#666',
+              cursor: canStart ? 'pointer' : 'not-allowed',
+            }}
+          >
+            START
+          </button>
+
+          <div style={{ fontSize: 14, opacity: 0.6 }}>
+            {canStart
+              ? 'Anyone can press START'
+              : `Waiting for other player… (${playerCount}/2)`}
+          </div>
+        </>
+      )}
     </div>
   );
 }
