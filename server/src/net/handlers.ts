@@ -180,25 +180,9 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
       const data = socket.data as { roomCode?: string; playerId?: string; displayRoomCode?: string } | undefined;
       log('net', `disconnect ${socket.id}${data?.playerId ? ` player=${data.playerId.slice(0, 8)}` : ''}${data?.displayRoomCode ? ` display-of=${data.displayRoomCode}` : ''}`);
 
-      // Display socket disconnected — tear down its room so we don't pile up
-      // orphan rooms each time a display tab closes / refreshes.
-      if (data?.displayRoomCode) {
-        const oldCode = data.displayRoomCode;
-        const room = mgr.getRoom(oldCode);
-        if (room) {
-          io.to(`room:${oldCode}:phones`).emit('room:ended');
-          for (const [pid, s] of socketByPlayerId) {
-            const sd = s.data as { roomCode?: string } | undefined;
-            if (sd?.roomCode === oldCode) {
-              socketByPlayerId.delete(pid);
-              s.data = {};
-              s.leave(`room:${oldCode}:phones`);
-            }
-          }
-          mgr.removeRoom(oldCode);
-          log('room', `${oldCode} cleaned up on display disconnect`);
-        }
-      }
+      // Rooms persist across display disconnects so F5 / reconnect can resume
+      // them via display:join_room. Use the × end game button or the
+      // /display?new=1 path to explicitly destroy a room.
 
       if (data?.playerId) {
         const room = mgr.getRoom(data.roomCode ?? '');
