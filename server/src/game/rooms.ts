@@ -11,6 +11,7 @@ export interface Room {
   arena: Rect;
   score: number;
   createdAt: number;
+  lastPowerupSpawnAt: number;
 }
 
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // omit I/O for readability
@@ -42,6 +43,7 @@ export class RoomManager {
       arena: { x: 0, y: 0, w: 800, h: 600 },
       score: 0,
       createdAt: Date.now(),
+      lastPowerupSpawnAt: 0,
     };
     this.rooms.set(code, room);
     return room;
