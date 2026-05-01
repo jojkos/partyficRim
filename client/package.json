@@ -1,5 +1,5 @@
 {
-  "name": "@polararena/client",
+  "name": "@partyficrim/client",
   "version": "0.0.0",
   "type": "module",
   "scripts": {
@@ -9,7 +9,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@polararena/shared": "*",
+    "@partyficrim/shared": "*",
     "nipplejs": "^0.10.2",
     "pixi.js": "^7.4.0",
     "qrcode": "^1.5.3",

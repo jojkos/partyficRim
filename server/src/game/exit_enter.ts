@@ -1,4 +1,4 @@
-import type { Mode, Vec2 } from '@polararena/shared';
+import type { Mode, Vec2 } from '@partyficrim/shared';
 
 export function isNearRobot(pos: Vec2, robot: Vec2, tile: number): boolean {
   return Math.hypot(pos.x - robot.x, pos.y - robot.y) <= tile;

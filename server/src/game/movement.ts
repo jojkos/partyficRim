@@ -1,4 +1,4 @@
-import type { Mode, Vec2 } from '@polararena/shared';
+import type { Mode, Vec2 } from '@partyficrim/shared';
 
 export interface RoleInput {
   input: Vec2; // raw input vector (already magnitude-clamped to <= 1)

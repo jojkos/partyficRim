@@ -5,7 +5,7 @@ import { useDisplayState } from './useDisplayState.js';
 import { PixiArena } from './PixiArena.js';
 import { HudOverlay } from './HudOverlay.js';
 
-const STORAGE_KEY = 'polararena.displayRoomCode';
+const STORAGE_KEY = 'partyficrim.displayRoomCode';
 
 export function DisplayPage() {
   const socket = useMemo(() => createSocket(), []);

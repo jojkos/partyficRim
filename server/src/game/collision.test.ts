@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { resolveCollisions } from './collision.js';
-import type { Rect, Vec2 } from '@polararena/shared';
+import type { Rect, Vec2 } from '@partyficrim/shared';
 
 describe('resolveCollisions', () => {
   const arena: Rect = { x: 0, y: 0, w: 800, h: 600 };

@@ -1,4 +1,4 @@
-import type { DisplaySnapshot, PhoneSnapshot, Role, Mode, Phase } from '@polararena/shared';
+import type { DisplaySnapshot, PhoneSnapshot, Role, Mode, Phase } from '@partyficrim/shared';
 import type { Room } from './rooms.js';
 import { computeRobotVelocity, applyMovement, computeOnFootVelocity } from './movement.js';
 import { resolveCollisions } from './collision.js';

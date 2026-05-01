@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { computeRobotVelocity, applyMovement } from './movement.js';
-import type { Vec2 } from '@polararena/shared';
+import type { Vec2 } from '@partyficrim/shared';
 
 const SPEED = 200;
 

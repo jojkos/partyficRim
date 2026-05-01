@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import * as PIXI from 'pixi.js';
-import type { DisplaySnapshot } from '@polararena/shared';
+import type { DisplaySnapshot } from '@partyficrim/shared';
 
 interface Props { snap: DisplaySnapshot; }
 

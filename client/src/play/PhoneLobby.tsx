@@ -1,4 +1,4 @@
-import type { PhoneSnapshot, Role } from '@polararena/shared';
+import type { PhoneSnapshot, Role } from '@partyficrim/shared';
 import type { AppSocket } from '../socket.js';
 import { useLandscape } from './useLandscape.js';
 
