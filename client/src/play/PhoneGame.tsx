@@ -32,7 +32,7 @@ export function PhoneGame({ socket, role, roomCode }: Props) {
     return (
       <div style={{
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        height: '100vh', padding: 24, textAlign: 'center', gap: 16,
+        height: '100%', padding: 24, textAlign: 'center', gap: 16,
       }}>
         <div style={{ fontSize: 64 }}>🔄</div>
         <div style={{ fontSize: 28, fontWeight: 700, color }}>Rotate your phone</div>
@@ -51,7 +51,7 @@ export function PhoneGame({ socket, role, roomCode }: Props) {
 
   return (
     <div style={{
-      position: 'fixed', inset: 0, width: '100vw', height: '100vh',
+      position: 'fixed', inset: 0, width: '100%', height: '100%',
       touchAction: 'none', userSelect: 'none', overflow: 'hidden',
     }}>
       <div style={{

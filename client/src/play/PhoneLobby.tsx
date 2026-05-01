@@ -24,7 +24,7 @@ export function PhoneLobby({ socket, role, roomCode, snap }: Props) {
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-      height: '100vh', gap: 18, padding: 20, textAlign: 'center',
+      height: '100%', gap: 18, padding: 20, textAlign: 'center',
     }}>
       <div style={{ fontSize: 16, opacity: 0.7 }}>Room {roomCode}</div>
       <div style={{ fontSize: 26 }}>You are</div>
