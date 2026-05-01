@@ -35,6 +35,7 @@ Then:
 
 See [docs/superpowers/specs/2026-05-01-partyficrim-mvp-design.md](docs/superpowers/specs/2026-05-01-partyficrim-mvp-design.md).
 
+
 ## Tests
 
 ```
