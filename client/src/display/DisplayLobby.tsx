@@ -7,9 +7,10 @@ interface Props {
   socket: AppSocket;
   roomCode: string | null;
   snap: DisplaySnapshot | null;
+  onResetRoom: () => void;
 }
 
-export function DisplayLobby({ socket, roomCode, snap }: Props) {
+export function DisplayLobby({ socket, roomCode, snap, onResetRoom }: Props) {
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -61,6 +62,17 @@ export function DisplayLobby({ socket, roomCode, snap }: Props) {
           <div style={{ fontSize: 14, opacity: 0.5 }}>
             {canStart ? 'Anyone can press start (display or phone)' : 'Waiting for both players to join…'}
           </div>
+          <button
+            onClick={onResetRoom}
+            style={{
+              position: 'fixed', top: 16, right: 16,
+              padding: '6px 12px', fontSize: 12,
+              background: 'transparent', color: '#888',
+              border: '1px solid #444', borderRadius: 6, cursor: 'pointer',
+            }}
+          >
+            × new game
+          </button>
         </>
       )}
     </div>

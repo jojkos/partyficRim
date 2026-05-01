@@ -10,7 +10,7 @@ interface Props { socket: AppSocket; role: Role; roomCode: string; }
 
 export function PhoneGame({ socket, role, roomCode }: Props) {
   const [snap, setSnap] = useState<PhoneSnapshot | null>(null);
-  const { isLandscape, enterFullscreenLandscape } = useLandscape();
+  const { isLandscape, enterFullscreenLandscape, canFullscreen, isStandalone } = useLandscape();
 
   useEffect(() => {
     const h = (s: PhoneSnapshot) => setSnap(s);
@@ -37,12 +37,14 @@ export function PhoneGame({ socket, role, roomCode }: Props) {
         <div style={{ fontSize: 64 }}>🔄</div>
         <div style={{ fontSize: 28, fontWeight: 700, color }}>Rotate your phone</div>
         <div style={{ fontSize: 18, opacity: 0.6 }}>polarArena is played in landscape</div>
-        <button onClick={enterFullscreenLandscape} style={{
-          marginTop: 12, padding: '12px 24px', fontSize: 18, borderRadius: 10,
-          border: 'none', background: color, color: '#fff', fontWeight: 700,
-        }}>
-          Enter fullscreen
-        </button>
+        {canFullscreen && !isStandalone && (
+          <button onClick={enterFullscreenLandscape} style={{
+            marginTop: 12, padding: '12px 24px', fontSize: 18, borderRadius: 10,
+            border: 'none', background: color, color: '#fff', fontWeight: 700,
+          }}>
+            Enter fullscreen
+          </button>
+        )}
       </div>
     );
   }
