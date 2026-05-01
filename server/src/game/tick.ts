@@ -3,12 +3,15 @@ import type { Room } from './rooms.js';
 import { computeRobotVelocity, applyMovement, computeOnFootVelocity } from './movement.js';
 import { resolveCollisions } from './collision.js';
 import { handleButton, isNearRobot } from './exit_enter.js';
+import { trySpawnPowerup, processPickups, POWERUP_RADIUS } from './powerups.js';
 
 const ROBOT_SPEED = 200;
 const PLAYER_SPEED = 200;
 const ROBOT_HALF = 20;
 const PLAYER_HALF = 10;
 const TILE = 32;
+const POWERUP_INTERVAL_MS = 3000;
+const POWERUP_MAX = 5;
 
 const COUNTDOWN_MS = 3000;
 
@@ -80,6 +83,23 @@ export function tickRoom(room: Room, dt: number): void {
         p.pos.y = room.robot.y;
       }
     }
+
+    // spawn + pickup powerups
+    const now = Date.now();
+    const spawned = trySpawnPowerup({
+      now, lastSpawnAt: room.lastPowerupSpawnAt, intervalMs: POWERUP_INTERVAL_MS,
+      max: POWERUP_MAX, arena: room.arena, obstacles: room.obstacles, existing: room.powerups,
+    });
+    if (spawned) room.lastPowerupSpawnAt = now;
+
+    const pickers: { pos: { x: number; y: number }; half: number }[] = [
+      { pos: room.robot, half: ROBOT_HALF },
+    ];
+    for (const p of [xPlayer, yPlayer]) {
+      if (p.mode === 'on_foot') pickers.push({ pos: p.pos, half: PLAYER_HALF });
+    }
+    const picked = processPickups(room.powerups, pickers);
+    room.score += picked;
     return;
   }
 
