@@ -54,4 +54,8 @@ export class RoomManager {
   removeRoom(code: string): void {
     this.rooms.delete(code);
   }
+
+  iterRooms(): IterableIterator<Room> {
+    return this.rooms.values();
+  }
 }
