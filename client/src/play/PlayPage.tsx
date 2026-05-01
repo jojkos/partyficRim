@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createSocket } from '../socket.js';
 import type { Role } from '@polararena/shared';
+import type { PhoneSnapshot } from '@polararena/shared';
 import { PhoneLobby } from './PhoneLobby.js';
+import { PhoneGame } from './PhoneGame.js';
 
 const SESSION_KEY = 'polararena.sessionId';
 
@@ -12,6 +14,7 @@ export function PlayPage() {
   const [roomCode, setRoomCode] = useState(initialRoom);
   const [role, setRole] = useState<Role | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [snap, setSnap] = useState<PhoneSnapshot | null>(null);
 
   useEffect(() => {
     if (!roomCode || roomCode.length !== 4) return;
@@ -22,6 +25,12 @@ export function PlayPage() {
       setRole(res.role);
     });
   }, [socket, roomCode]);
+
+  useEffect(() => {
+    const h = (s: PhoneSnapshot) => setSnap(s);
+    socket.on('phone:state', h);
+    return () => { socket.off('phone:state', h); };
+  }, [socket]);
 
   if (!roomCode || roomCode.length !== 4) {
     return (
@@ -43,5 +52,7 @@ export function PlayPage() {
 
   if (error) return <div style={{ padding: 24 }}>Error: {error}</div>;
   if (!role) return <div style={{ padding: 24 }}>Joining {roomCode}…</div>;
-  return <PhoneLobby role={role} roomCode={roomCode} />;
+  return snap?.phase === 'lobby' || snap?.phase === 'countdown'
+    ? <PhoneLobby role={role} roomCode={roomCode} />
+    : <PhoneGame socket={socket} role={role} roomCode={roomCode} />;
 }
