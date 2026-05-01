@@ -1,5 +1,9 @@
 import type { DisplaySnapshot, PhoneSnapshot, Role, Mode } from '@polararena/shared';
 import type { Room } from './rooms.js';
+import { computeRobotVelocity, applyMovement, computeOnFootVelocity } from './movement.js';
+
+const ROBOT_SPEED = 200;
+const PLAYER_SPEED = 200;
 
 const COUNTDOWN_MS = 3000;
 
@@ -39,7 +43,28 @@ export function tickRoom(room: Room, dt: number): void {
       room.phase = 'paused';
       return;
     }
-    // movement / collision / powerups handled in later tasks
+
+    const xPlayer = [...room.players.values()].find((p) => p.role === 'X');
+    const yPlayer = [...room.players.values()].find((p) => p.role === 'Y');
+    if (!xPlayer || !yPlayer) return;
+
+    const robotVel = computeRobotVelocity(
+      { x: { input: xPlayer.lastInput, mode: xPlayer.mode },
+        y: { input: yPlayer.lastInput, mode: yPlayer.mode } },
+      ROBOT_SPEED
+    );
+    applyMovement(room.robot, robotVel, dt);
+
+    for (const p of [xPlayer, yPlayer]) {
+      if (p.mode === 'on_foot') {
+        const v = computeOnFootVelocity(p.lastInput, PLAYER_SPEED);
+        applyMovement(p.pos, v, dt);
+      } else {
+        // on-foot players inside robot follow robot position
+        p.pos.x = room.robot.x;
+        p.pos.y = room.robot.y;
+      }
+    }
     return;
   }
 
