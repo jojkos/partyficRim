@@ -1,17 +1,37 @@
-import type { Phase, PlayerState, PowerupState, Rect, Vec2 } from '@partyficrim/shared';
+import type { FeedEvent, Phase, PlayerState, PowerupState, Rect, Vec2 } from '@partyficrim/shared';
+
+export type Quadrant = 0 | 1 | 2 | 3;
+
+export interface RoomPlayer extends PlayerState {
+  sessionId: string;
+  lastInput: Vec2;
+  lastButtonAt: number;
+  selected: [boolean, boolean, boolean, boolean];
+  quadrant: number | null;
+}
 
 export interface Room {
   code: string;
   phase: Phase;
   countdownMsRemaining: number;
   robot: Vec2;
-  players: Map<string, PlayerState & { sessionId: string; lastInput: Vec2; lastButtonAt: number }>;
+  players: Map<string, RoomPlayer>;
   powerups: Map<string, PowerupState>;
   obstacles: Rect[];
   arena: Rect;
   score: number;
   createdAt: number;
   lastPowerupSpawnAt: number;
+  eventFeed: FeedEvent[];
+}
+
+const FEED_MAX = 12;
+
+export function pushFeed(room: Room, e: FeedEvent): void {
+  room.eventFeed.push(e);
+  if (room.eventFeed.length > FEED_MAX) {
+    room.eventFeed.splice(0, room.eventFeed.length - FEED_MAX);
+  }
 }
 
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // omit I/O for readability
@@ -44,6 +64,7 @@ export class RoomManager {
       score: 0,
       createdAt: Date.now(),
       lastPowerupSpawnAt: 0,
+      eventFeed: [],
     };
     this.rooms.set(code, room);
     return room;
