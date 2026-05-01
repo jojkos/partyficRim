@@ -35,10 +35,13 @@ export function PhoneGame({ socket, role, roomCode: _roomCode }: Props) {
     socket.emit('phone:quadrant', { index });
   }, [socket]);
 
-  const lockAxis = snap?.mode === 'on_foot' ? null : (role === 'X' ? 'x' : 'y');
+  const onFoot = snap?.mode === 'on_foot';
+  const lockAxis = onFoot ? null : (role === 'X' ? 'x' : 'y');
   const color = ROLE_COLOR[role];
-  const actionLabel = snap?.mode === 'on_foot' ? 'ENTER' : 'EXIT';
-  const actionDisabled = snap?.mode === 'on_foot' && !snap.nearRobot;
+  const actionLabel = onFoot ? 'ENTER' : 'EXIT';
+  const actionDisabled = onFoot && !snap?.nearRobot;
+  // Selection / quadrant grids are robot controls — disabled while on foot.
+  const controlsDisabled = onFoot;
 
   if (!isLandscape) {
     return (
@@ -128,25 +131,36 @@ export function PhoneGame({ socket, role, roomCode: _roomCode }: Props) {
         }}>
           {[0, 1, 2, 3].map((i) => {
             const on = snap?.selected[i] ?? false;
+            const borderCol = controlsDisabled
+              ? 'rgba(255,255,255,0.08)'
+              : on ? color : 'rgba(255,255,255,0.25)';
+            const bg = controlsDisabled
+              ? 'transparent'
+              : on ? color : 'transparent';
+            const fg = controlsDisabled
+              ? '#444'
+              : on ? '#0a0a12' : '#fff';
             return (
               <button
                 key={i}
                 onClick={() => onSelect(i)}
+                disabled={controlsDisabled}
                 style={{
-                  border: `2px solid ${on ? color : 'rgba(255,255,255,0.25)'}`,
-                  background: on ? color : 'transparent',
-                  color: on ? '#0a0a12' : '#fff',
+                  border: `2px solid ${borderCol}`,
+                  background: bg,
+                  color: fg,
                   fontSize: 16, fontWeight: 800, letterSpacing: 2,
                   borderRadius: 8,
-                  cursor: 'pointer',
+                  cursor: controlsDisabled ? 'not-allowed' : 'pointer',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   flexDirection: 'column',
                   gap: 4,
+                  opacity: controlsDisabled ? 0.4 : 1,
                 }}
               >
                 <span style={{
                   width: 24, height: 24,
-                  border: `2px solid ${on ? '#0a0a12' : 'rgba(255,255,255,0.6)'}`,
+                  border: `2px solid ${controlsDisabled ? '#444' : on ? '#0a0a12' : 'rgba(255,255,255,0.6)'}`,
                   borderRadius: 4,
                 }} />
                 <span>OPT {i + 1}</span>
@@ -165,17 +179,28 @@ export function PhoneGame({ socket, role, roomCode: _roomCode }: Props) {
         }}>
           {[0, 1, 2, 3].map((i) => {
             const on = snap?.quadrant === i;
+            const borderCol = controlsDisabled
+              ? 'rgba(255,255,255,0.08)'
+              : on ? color : 'rgba(255,255,255,0.25)';
+            const bg = controlsDisabled
+              ? 'transparent'
+              : on ? color : 'transparent';
+            const fg = controlsDisabled
+              ? '#444'
+              : on ? '#0a0a12' : '#fff';
             return (
               <button
                 key={i}
                 onClick={() => onQuadrant(i)}
+                disabled={controlsDisabled}
                 style={{
-                  border: `2px solid ${on ? color : 'rgba(255,255,255,0.25)'}`,
-                  background: on ? color : 'transparent',
-                  color: on ? '#0a0a12' : '#fff',
+                  border: `2px solid ${borderCol}`,
+                  background: bg,
+                  color: fg,
                   fontSize: 32, fontWeight: 800,
                   borderRadius: 8,
-                  cursor: 'pointer',
+                  cursor: controlsDisabled ? 'not-allowed' : 'pointer',
+                  opacity: controlsDisabled ? 0.4 : 1,
                 }}
               >
                 {QUADRANT_ARROW[i]}
