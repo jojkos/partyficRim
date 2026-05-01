@@ -10,6 +10,8 @@ import { randomUUID } from 'node:crypto';
 type IO = Server<ClientToServerEvents, ServerToClientEvents>;
 type S = Socket<ClientToServerEvents, ServerToClientEvents>;
 
+export const socketByPlayerId = new Map<string, S>();
+
 function nextRole(room: Room): Role | undefined {
   const taken = new Set<Role>();
   for (const p of room.players.values()) taken.add(p.role);
@@ -44,6 +46,7 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
             p.connected = true;
             socket.data = { roomCode, playerId: p.id };
             socket.join(`room:${room.code}:phones`);
+            socketByPlayerId.set(p.id, socket);
             return cb({ ok: true, role: p.role, sessionId });
           }
         }
@@ -66,6 +69,7 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
       });
       socket.data = { roomCode, playerId: id };
       socket.join(`room:${room.code}:phones`);
+      socketByPlayerId.set(id, socket);
       cb({ ok: true, role, sessionId: newSessionId });
     });
 
@@ -95,6 +99,7 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
       const room = mgr.getRoom(data.roomCode);
       const p = room?.players.get(data.playerId);
       if (p) p.connected = false;
+      if (data.playerId) socketByPlayerId.delete(data.playerId);
     });
   });
 }
