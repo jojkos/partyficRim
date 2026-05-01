@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
-import type { DisplaySnapshot } from '@polararena/shared';
+import type { DisplaySnapshot } from '@partyficrim/shared';
 import type { AppSocket } from '../socket.js';
 
 interface Props {

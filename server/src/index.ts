@@ -1,7 +1,7 @@
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import type { ClientToServerEvents, ServerToClientEvents } from '@polararena/shared';
+import type { ClientToServerEvents, ServerToClientEvents } from '@partyficrim/shared';
 import { RoomManager } from './game/rooms.js';
 import { registerHandlers, socketByPlayerId } from './net/handlers.js';
 import { GameLoop } from './game/loop.js';

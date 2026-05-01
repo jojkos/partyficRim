@@ -1,4 +1,4 @@
-import type { DisplaySnapshot, Mode, Role } from '@polararena/shared';
+import type { DisplaySnapshot, Mode, Role } from '@partyficrim/shared';
 
 const ROLE_COLOR: Record<Role, string> = { X: '#ff5577', Y: '#55c2ff' };
 

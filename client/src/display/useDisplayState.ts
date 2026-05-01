@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { DisplaySnapshot } from '@polararena/shared';
+import type { DisplaySnapshot } from '@partyficrim/shared';
 import type { AppSocket } from '../socket.js';
 
 export function useDisplayState(socket: AppSocket): DisplaySnapshot | null {

@@ -1,4 +1,4 @@
-import type { Rect, Vec2 } from '@polararena/shared';
+import type { Rect, Vec2 } from '@partyficrim/shared';
 
 export function resolveCollisions(pos: Vec2, half: number, obstacles: Rect[], arena: Rect): void {
   // clamp to arena

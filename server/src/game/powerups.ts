@@ -1,4 +1,4 @@
-import type { PowerupState, Rect, Vec2 } from '@polararena/shared';
+import type { PowerupState, Rect, Vec2 } from '@partyficrim/shared';
 import { randomUUID } from 'node:crypto';
 
 export const POWERUP_RADIUS = 8;

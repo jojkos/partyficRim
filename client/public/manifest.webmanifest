@@ -1,6 +1,6 @@
 {
-  "name": "polarArena",
-  "short_name": "polarArena",
+  "name": "partyficRim",
+  "short_name": "partyficRim",
   "description": "Asymmetric coop arena party game",
   "start_url": "/play",
   "scope": "/",

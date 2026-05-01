@@ -6,7 +6,7 @@ export function Landing() {
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
       gap: 40, height: '100%', padding: 24, textAlign: 'center',
     }}>
-      <h1 style={{ fontSize: 64, margin: 0, letterSpacing: 6 }}>polarArena</h1>
+      <h1 style={{ fontSize: 64, margin: 0, letterSpacing: 6 }}>partyficRim</h1>
       <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', justifyContent: 'center' }}>
         <Link to="/display?new=1" style={btn('#88ddaa', '#0a0a12')}>HOST</Link>
         <Link to="/play" style={btn('#55c2ff', '#0a0a12')}>JOIN</Link>

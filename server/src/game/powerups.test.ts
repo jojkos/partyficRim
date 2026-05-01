@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { trySpawnPowerup, processPickups, POWERUP_RADIUS } from './powerups.js';
-import type { PowerupState, Rect, Vec2 } from '@polararena/shared';
+import type { PowerupState, Rect, Vec2 } from '@partyficrim/shared';
 
 describe('trySpawnPowerup', () => {
   it('spawns when interval elapsed and below cap', () => {

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createServer, type Server as HttpServer } from 'node:http';
 import { Server, type Socket as ServerSocket } from 'socket.io';
 import { io as ioClient, type Socket as ClientSocket } from 'socket.io-client';
-import type { ClientToServerEvents, ServerToClientEvents } from '@polararena/shared';
+import type { ClientToServerEvents, ServerToClientEvents } from '@partyficrim/shared';
 import { RoomManager } from '../game/rooms.js';
 import { registerHandlers, socketByPlayerId } from './handlers.js';
 

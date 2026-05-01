@@ -1,4 +1,4 @@
-import type { Phase, PlayerState, PowerupState, Rect, Vec2 } from '@polararena/shared';
+import type { Phase, PlayerState, PowerupState, Rect, Vec2 } from '@partyficrim/shared';
 
 export interface Room {
   code: string;

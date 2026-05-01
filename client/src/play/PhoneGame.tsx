@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import type { PhoneSnapshot, Role } from '@polararena/shared';
+import type { PhoneSnapshot, Role } from '@partyficrim/shared';
 import type { AppSocket } from '../socket.js';
 import { Joystick } from './Joystick.js';
 import { useLandscape } from './useLandscape.js';
@@ -36,7 +36,7 @@ export function PhoneGame({ socket, role, roomCode }: Props) {
       }}>
         <div style={{ fontSize: 64 }}>🔄</div>
         <div style={{ fontSize: 28, fontWeight: 700, color }}>Rotate your phone</div>
-        <div style={{ fontSize: 18, opacity: 0.6 }}>polarArena is played in landscape</div>
+        <div style={{ fontSize: 18, opacity: 0.6 }}>partyficRim is played in landscape</div>
         {canFullscreen && !isStandalone && (
           <button onClick={enterFullscreenLandscape} style={{
             marginTop: 12, padding: '12px 24px', fontSize: 18, borderRadius: 10,

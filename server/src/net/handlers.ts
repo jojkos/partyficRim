@@ -3,7 +3,7 @@ import type {
   ClientToServerEvents,
   ServerToClientEvents,
   Role,
-} from '@polararena/shared';
+} from '@partyficrim/shared';
 import type { RoomManager, Room } from '../game/rooms.js';
 import { requestStart } from '../game/tick.js';
 import { log } from '../log.js';

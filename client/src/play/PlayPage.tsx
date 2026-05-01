@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createSocket } from '../socket.js';
-import type { Role, PhoneSnapshot } from '@polararena/shared';
+import type { Role, PhoneSnapshot } from '@partyficrim/shared';
 import { PhoneLobby } from './PhoneLobby.js';
 import { PhoneGame } from './PhoneGame.js';
 
-const SESSION_KEY = 'polararena.session';
+const SESSION_KEY = 'partyficrim.session';
 
 interface StoredSession {
   roomCode: string;

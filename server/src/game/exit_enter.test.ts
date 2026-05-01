@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { handleButton, isNearRobot } from './exit_enter.js';
-import type { Vec2 } from '@polararena/shared';
+import type { Vec2 } from '@partyficrim/shared';
 
 const ROBOT_POS: Vec2 = { x: 100, y: 100 };
 const TILE = 32;

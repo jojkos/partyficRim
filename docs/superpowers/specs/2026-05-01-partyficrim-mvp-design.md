@@ -1,8 +1,8 @@
-# polarArena MVP — Design
+# partyficRim MVP — Design
 
 ## 1. Concept
 
-polarArena is an asymmetric cooperative party game played in a browser. One **display** screen (TV, monitor, or browser window) shows the isometric arena and is where everyone watches the action. Two players join from their phones and share control of a single robot — one player controls movement on the X axis, the other on the Y axis. Either player can exit the robot at any time and run around freely on foot.
+partyficRim is an asymmetric cooperative party game played in a browser. One **display** screen (TV, monitor, or browser window) shows the isometric arena and is where everyone watches the action. Two players join from their phones and share control of a single robot — one player controls movement on the X axis, the other on the Y axis. Either player can exit the robot at any time and run around freely on foot.
 
 The MVP has no enemies, no waves, and no win condition. It exists to validate the core mechanics: split-axis robot control, exit/re-enter, and shared powerup collection on a server-authoritative isometric arena.
 
@@ -24,7 +24,7 @@ No database. Rooms live in server memory and disappear on restart.
 ## 3. Repository layout
 
 ```
-polarArena/
+partyficRim/
   client/                     # Vite + React + Pixi
     src/
       display/                # /display route — Pixi canvas + overlays

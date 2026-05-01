@@ -1,4 +1,4 @@
-# polarArena
+# partyficRim
 
 Asymmetric coop arena game (MVP). One display + two phones.
 
@@ -33,7 +33,7 @@ Then:
 
 ## Architecture
 
-See [docs/superpowers/specs/2026-05-01-polararena-mvp-design.md](docs/superpowers/specs/2026-05-01-polararena-mvp-design.md).
+See [docs/superpowers/specs/2026-05-01-partyficrim-mvp-design.md](docs/superpowers/specs/2026-05-01-partyficrim-mvp-design.md).
 
 ## Tests
 

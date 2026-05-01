@@ -1,14 +1,14 @@
-# polarArena MVP Implementation Plan
+# partyficRim MVP Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the polarArena MVP — a browser-based asymmetric coop arena game where two phones share control of a single robot rendered on a third "display" screen, with isometric 2D rendering, exit/enter mechanics, AABB collisions, and shared powerup pickup.
+**Goal:** Build the partyficRim MVP — a browser-based asymmetric coop arena game where two phones share control of a single robot rendered on a third "display" screen, with isometric 2D rendering, exit/enter mechanics, AABB collisions, and shared powerup pickup.
 
 **Architecture:** Single repo with npm workspaces. Server is Node + Express + Socket.IO running an authoritative 30Hz simulation. Client is one Vite + React + TypeScript app with two routes (`/display`, `/play`), where the display uses PixiJS for the arena and React overlays for HUD, and the phone uses pure React + nipplejs. Phones send only input; server broadcasts canonical state.
 
 **Tech Stack:** TypeScript, Node, Express, Socket.IO, Vite, React, PixiJS, nipplejs, qrcode, Vitest, mkcert.
 
-**Spec:** [`docs/superpowers/specs/2026-05-01-polararena-mvp-design.md`](../specs/2026-05-01-polararena-mvp-design.md)
+**Spec:** [`docs/superpowers/specs/2026-05-01-partyficrim-mvp-design.md`](../specs/2026-05-01-partyficrim-mvp-design.md)
 
 ---
 
@@ -24,7 +24,7 @@
 - [ ] **Step 1: Initialize git**
 
 ```bash
-cd /Users/jonas/Work/polarArena
+cd /Users/jonas/Work/partyficRim
 git init
 git branch -m main
 ```
@@ -48,7 +48,7 @@ coverage/
 
 ```json
 {
-  "name": "polararena",
+  "name": "partyficrim",
   "private": true,
   "version": "0.0.0",
   "workspaces": ["shared", "server", "client"],
@@ -112,7 +112,7 @@ git commit -m "chore: initialize repo with npm workspaces"
 
 ```json
 {
-  "name": "@polararena/shared",
+  "name": "@partyficrim/shared",
   "version": "0.0.0",
   "type": "module",
   "main": "src/index.ts",
@@ -236,7 +236,7 @@ git commit -m "feat(shared): add cross-cutting state and event types"
 
 ```json
 {
-  "name": "@polararena/server",
+  "name": "@partyficrim/server",
   "version": "0.0.0",
   "type": "module",
   "scripts": {
@@ -246,7 +246,7 @@ git commit -m "feat(shared): add cross-cutting state and event types"
     "test": "vitest run"
   },
   "dependencies": {
-    "@polararena/shared": "*",
+    "@partyficrim/shared": "*",
     "express": "^4.19.0",
     "socket.io": "^4.7.0"
   },
@@ -294,7 +294,7 @@ export default defineConfig({
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import type { ClientToServerEvents, ServerToClientEvents } from '@polararena/shared';
+import type { ClientToServerEvents, ServerToClientEvents } from '@partyficrim/shared';
 
 const app = express();
 const httpServer = createServer(app);
@@ -341,7 +341,7 @@ git commit -m "feat(server): scaffold express + socket.io server"
 
 ```json
 {
-  "name": "@polararena/client",
+  "name": "@partyficrim/client",
   "version": "0.0.0",
   "type": "module",
   "scripts": {
@@ -351,7 +351,7 @@ git commit -m "feat(server): scaffold express + socket.io server"
     "test": "vitest run"
   },
   "dependencies": {
-    "@polararena/shared": "*",
+    "@partyficrim/shared": "*",
     "nipplejs": "^0.10.2",
     "pixi.js": "^7.4.0",
     "qrcode": "^1.5.3",
@@ -415,7 +415,7 @@ export default defineConfig({
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>polarArena</title>
+    <title>partyficRim</title>
     <style>
       html, body, #root { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; background: #0a0a12; color: #fff; font-family: system-ui, sans-serif; }
     </style>
@@ -465,7 +465,7 @@ export function App() {
 
 ```tsx
 export function DisplayPage() {
-  return <div style={{ padding: 24 }}><h1>polarArena display</h1></div>;
+  return <div style={{ padding: 24 }}><h1>partyficRim display</h1></div>;
 }
 ```
 
@@ -473,7 +473,7 @@ export function DisplayPage() {
 
 ```tsx
 export function PlayPage() {
-  return <div style={{ padding: 24 }}><h1>polarArena phone</h1></div>;
+  return <div style={{ padding: 24 }}><h1>partyficRim phone</h1></div>;
 }
 ```
 
@@ -481,7 +481,7 @@ export function PlayPage() {
 
 Run: `npm install`
 Run: `npm run dev`
-Expected: server logs `:3000`, client logs `:5173`. Open `http://localhost:5173/display` → see "polarArena display". Open `http://localhost:5173/play` → see "polarArena phone". Stop with Ctrl-C.
+Expected: server logs `:3000`, client logs `:5173`. Open `http://localhost:5173/display` → see "partyficRim display". Open `http://localhost:5173/play` → see "partyficRim phone". Stop with Ctrl-C.
 
 - [ ] **Step 10: Commit**
 
@@ -610,7 +610,7 @@ Expected: FAIL — `Cannot find module './rooms.js'`
 - [ ] **Step 3: Implement `server/src/game/rooms.ts`**
 
 ```ts
-import type { Phase, PlayerState, PowerupState, Rect, Vec2 } from '@polararena/shared';
+import type { Phase, PlayerState, PowerupState, Rect, Vec2 } from '@partyficrim/shared';
 
 export interface Room {
   code: string;
@@ -697,7 +697,7 @@ import type {
   ClientToServerEvents,
   ServerToClientEvents,
   Role,
-} from '@polararena/shared';
+} from '@partyficrim/shared';
 import type { RoomManager, Room } from '../game/rooms.js';
 import { randomUUID } from 'node:crypto';
 
@@ -800,7 +800,7 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import type { ClientToServerEvents, ServerToClientEvents } from '@polararena/shared';
+import type { ClientToServerEvents, ServerToClientEvents } from '@partyficrim/shared';
 import { RoomManager } from './game/rooms.js';
 import { registerHandlers } from './net/handlers.js';
 
@@ -846,7 +846,7 @@ git commit -m "feat(server): handle room creation, phone join, input, disconnect
 
 ```ts
 import { io, type Socket } from 'socket.io-client';
-import type { ClientToServerEvents, ServerToClientEvents } from '@polararena/shared';
+import type { ClientToServerEvents, ServerToClientEvents } from '@partyficrim/shared';
 
 export type AppSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -941,10 +941,10 @@ git commit -m "feat(display): show room code and QR on lobby"
 ```tsx
 import { useEffect, useMemo, useState } from 'react';
 import { createSocket } from '../socket.js';
-import type { Role } from '@polararena/shared';
+import type { Role } from '@partyficrim/shared';
 import { PhoneLobby } from './PhoneLobby.js';
 
-const SESSION_KEY = 'polararena.sessionId';
+const SESSION_KEY = 'partyficrim.sessionId';
 
 export function PlayPage() {
   const socket = useMemo(() => createSocket(), []);
@@ -991,7 +991,7 @@ export function PlayPage() {
 - [ ] **Step 2: Create `client/src/play/PhoneLobby.tsx`**
 
 ```tsx
-import type { Role } from '@polararena/shared';
+import type { Role } from '@partyficrim/shared';
 
 const ROLE_COLOR: Record<Role, string> = { X: '#ff5577', Y: '#55c2ff' };
 
@@ -1249,7 +1249,7 @@ Expected: FAIL — module not found.
 - [ ] **Step 3: Implement `server/src/game/tick.ts`**
 
 ```ts
-import type { DisplaySnapshot, PhoneSnapshot, Role, Mode } from '@polararena/shared';
+import type { DisplaySnapshot, PhoneSnapshot, Role, Mode } from '@partyficrim/shared';
 import type { Room } from './rooms.js';
 
 const COUNTDOWN_MS = 3000;
@@ -1358,7 +1358,7 @@ git commit -m "feat(server): add phase machine and snapshot builders"
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import type { ClientToServerEvents, ServerToClientEvents } from '@polararena/shared';
+import type { ClientToServerEvents, ServerToClientEvents } from '@partyficrim/shared';
 import { RoomManager } from './game/rooms.js';
 import { registerHandlers } from './net/handlers.js';
 import { GameLoop } from './game/loop.js';
@@ -1470,7 +1470,7 @@ git commit -m "feat(server): drive loop, broadcast display + phone snapshots"
 
 ```ts
 import { useEffect, useState } from 'react';
-import type { DisplaySnapshot } from '@polararena/shared';
+import type { DisplaySnapshot } from '@partyficrim/shared';
 import type { AppSocket } from '../socket.js';
 
 export function useDisplayState(socket: AppSocket): DisplaySnapshot | null {
@@ -1508,7 +1508,7 @@ export function DisplayPage() {
 ```tsx
 import { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
-import type { DisplaySnapshot } from '@polararena/shared';
+import type { DisplaySnapshot } from '@partyficrim/shared';
 import type { AppSocket } from '../socket.js';
 
 interface Props {
@@ -1635,7 +1635,7 @@ export function Joystick({ lockAxis, onMove, color }: Props) {
 
 ```tsx
 import { useEffect, useState, useCallback } from 'react';
-import type { PhoneSnapshot, Role } from '@polararena/shared';
+import type { PhoneSnapshot, Role } from '@partyficrim/shared';
 import type { AppSocket } from '../socket.js';
 import { Joystick } from './Joystick.js';
 
@@ -1709,7 +1709,7 @@ useEffect(() => {
 Add the import:
 
 ```tsx
-import type { PhoneSnapshot } from '@polararena/shared';
+import type { PhoneSnapshot } from '@partyficrim/shared';
 import { PhoneGame } from './PhoneGame.js';
 ```
 
@@ -1743,7 +1743,7 @@ git commit -m "feat(phone): axis-locked joystick + button, sends input"
 ```ts
 import { describe, it, expect } from 'vitest';
 import { computeRobotVelocity, applyMovement } from './movement.js';
-import type { Vec2 } from '@polararena/shared';
+import type { Vec2 } from '@partyficrim/shared';
 
 const SPEED = 200;
 
@@ -1793,7 +1793,7 @@ Expected: FAIL — module missing.
 - [ ] **Step 3: Create `server/src/game/movement.ts`**
 
 ```ts
-import type { Mode, Vec2 } from '@polararena/shared';
+import type { Mode, Vec2 } from '@partyficrim/shared';
 
 export interface RoleInput {
   input: Vec2; // raw input vector (already magnitude-clamped to <= 1)
@@ -1894,7 +1894,7 @@ git commit -m "feat(server): apply phone input to robot and on-foot velocity"
 ```tsx
 import { useEffect, useRef } from 'react';
 import * as PIXI from 'pixi.js';
-import type { DisplaySnapshot } from '@polararena/shared';
+import type { DisplaySnapshot } from '@partyficrim/shared';
 
 interface Props { snap: DisplaySnapshot; }
 
@@ -2043,7 +2043,7 @@ git commit -m "feat(display): render arena, robot, obstacles, powerups via Pixi"
 ```ts
 import { describe, it, expect } from 'vitest';
 import { resolveCollisions } from './collision.js';
-import type { Rect, Vec2 } from '@polararena/shared';
+import type { Rect, Vec2 } from '@partyficrim/shared';
 
 describe('resolveCollisions', () => {
   const arena: Rect = { x: 0, y: 0, w: 800, h: 600 };
@@ -2081,7 +2081,7 @@ Expected: FAIL — module not found.
 - [ ] **Step 3: Implement `server/src/game/collision.ts`**
 
 ```ts
-import type { Rect, Vec2 } from '@polararena/shared';
+import type { Rect, Vec2 } from '@partyficrim/shared';
 
 export function resolveCollisions(pos: Vec2, half: number, obstacles: Rect[], arena: Rect): void {
   // clamp to arena
@@ -2156,7 +2156,7 @@ git commit -m "feat(server): AABB collision resolution for robot and players"
 ```ts
 import { describe, it, expect } from 'vitest';
 import { handleButton, isNearRobot } from './exit_enter.js';
-import type { Vec2 } from '@polararena/shared';
+import type { Vec2 } from '@partyficrim/shared';
 
 const ROBOT_POS: Vec2 = { x: 100, y: 100 };
 const TILE = 32;
@@ -2199,7 +2199,7 @@ Run: `npm --workspace=server test`
 - [ ] **Step 3: Implement `server/src/game/exit_enter.ts`**
 
 ```ts
-import type { Mode, Vec2 } from '@polararena/shared';
+import type { Mode, Vec2 } from '@partyficrim/shared';
 
 export function isNearRobot(pos: Vec2, robot: Vec2, tile: number): boolean {
   return Math.hypot(pos.x - robot.x, pos.y - robot.y) <= tile;
@@ -2308,7 +2308,7 @@ git commit -m "feat: exit/enter robot with proximity check and disabled button"
 ```ts
 import { describe, it, expect } from 'vitest';
 import { trySpawnPowerup, processPickups, POWERUP_RADIUS } from './powerups.js';
-import type { PowerupState, Rect, Vec2 } from '@polararena/shared';
+import type { PowerupState, Rect, Vec2 } from '@partyficrim/shared';
 
 describe('trySpawnPowerup', () => {
   it('spawns when interval elapsed and below cap', () => {
@@ -2363,7 +2363,7 @@ describe('processPickups', () => {
 - [ ] **Step 3: Implement `server/src/game/powerups.ts`**
 
 ```ts
-import type { PowerupState, Rect, Vec2 } from '@polararena/shared';
+import type { PowerupState, Rect, Vec2 } from '@partyficrim/shared';
 import { randomUUID } from 'node:crypto';
 
 export const POWERUP_RADIUS = 8;
@@ -2529,7 +2529,7 @@ export function useLandscape() {
 - [ ] **Step 2: Update `client/src/play/PhoneLobby.tsx` to add a "Tap to start" button that triggers fullscreen+orientation**
 
 ```tsx
-import type { Role } from '@polararena/shared';
+import type { Role } from '@partyficrim/shared';
 import { useLandscape } from './useLandscape.js';
 
 const ROLE_COLOR: Record<Role, string> = { X: '#ff5577', Y: '#55c2ff' };
@@ -2560,7 +2560,7 @@ export function PhoneLobby({ role, roomCode }: { role: Role; roomCode: string })
 
 ```tsx
 import { useEffect, useState, useCallback } from 'react';
-import type { PhoneSnapshot, Role } from '@polararena/shared';
+import type { PhoneSnapshot, Role } from '@partyficrim/shared';
 import type { AppSocket } from '../socket.js';
 import { Joystick } from './Joystick.js';
 import { useLandscape } from './useLandscape.js';
@@ -2597,7 +2597,7 @@ export function PhoneGame({ socket, role, roomCode }: Props) {
       }}>
         <div style={{ fontSize: 64 }}>🔄</div>
         <div style={{ fontSize: 28, fontWeight: 700, color }}>Rotate your phone</div>
-        <div style={{ fontSize: 18, opacity: 0.6 }}>polarArena is played in landscape</div>
+        <div style={{ fontSize: 18, opacity: 0.6 }}>partyficRim is played in landscape</div>
         <button onClick={enterFullscreenLandscape} style={{
           marginTop: 12, padding: '12px 24px', fontSize: 18, borderRadius: 10,
           border: 'none', background: color, color: '#fff', fontWeight: 700,
@@ -2668,7 +2668,7 @@ git commit -m "feat(phone): landscape lock, fullscreen on tap, portrait warning"
 - [ ] **Step 1: Create `client/src/display/HudOverlay.tsx`**
 
 ```tsx
-import type { DisplaySnapshot, Mode, Role } from '@polararena/shared';
+import type { DisplaySnapshot, Mode, Role } from '@partyficrim/shared';
 
 const ROLE_COLOR: Record<Role, string> = { X: '#ff5577', Y: '#55c2ff' };
 
@@ -2802,7 +2802,7 @@ git diff --cached --quiet || git commit -m "chore(phone): polish header"
 - [ ] **Step 1: Create `README.md`**
 
 ```markdown
-# polarArena
+# partyficRim
 
 Asymmetric coop arena game (MVP). One display + two phones.
 
@@ -2828,7 +2828,7 @@ Then:
 
 ## Architecture
 
-See [docs/superpowers/specs/2026-05-01-polararena-mvp-design.md](docs/superpowers/specs/2026-05-01-polararena-mvp-design.md).
+See [docs/superpowers/specs/2026-05-01-partyficrim-mvp-design.md](docs/superpowers/specs/2026-05-01-partyficrim-mvp-design.md).
 
 ## Tests
 
@@ -2868,7 +2868,7 @@ If any item fails, file it as a follow-up task and fix before declaring MVP done
 - [ ] **Step 2: Tag the MVP**
 
 ```bash
-git tag -a mvp -m "polarArena MVP feature-complete"
+git tag -a mvp -m "partyficRim MVP feature-complete"
 ```
 
 ---
