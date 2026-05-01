@@ -12,7 +12,7 @@ interface Props {
 }
 
 export function PhoneLobby({ socket, role, roomCode, snap }: Props) {
-  const { enterFullscreenLandscape } = useLandscape();
+  const { enterFullscreenLandscape, canFullscreen, isIOS, isStandalone } = useLandscape();
   const color = ROLE_COLOR[role];
 
   const playerCount = snap?.playerCount ?? 1;
@@ -34,12 +34,23 @@ export function PhoneLobby({ socket, role, roomCode, snap }: Props) {
         <div style={{ fontSize: 32, fontWeight: 700 }}>Starting…</div>
       ) : (
         <>
-          <button onClick={enterFullscreenLandscape} style={{
-            padding: '12px 24px', fontSize: 18, borderRadius: 10, border: 'none',
-            background: 'rgba(255,255,255,0.1)', color: '#fff', fontWeight: 600,
-          }}>
-            Tap to enter fullscreen
-          </button>
+          {canFullscreen && !isStandalone && (
+            <button onClick={enterFullscreenLandscape} style={{
+              padding: '12px 24px', fontSize: 18, borderRadius: 10, border: 'none',
+              background: 'rgba(255,255,255,0.1)', color: '#fff', fontWeight: 600,
+            }}>
+              Tap to enter fullscreen
+            </button>
+          )}
+          {isIOS && !isStandalone && (
+            <div style={{
+              padding: '8px 14px', fontSize: 13, opacity: 0.7, maxWidth: 320,
+              borderRadius: 10, background: 'rgba(255,255,255,0.04)',
+            }}>
+              iPhone tip: tap Share → "Add to Home Screen" and open from there for fullscreen.
+              Otherwise, just rotate to landscape and play with the URL bar visible.
+            </div>
+          )}
 
           <button
             onClick={onStart}
