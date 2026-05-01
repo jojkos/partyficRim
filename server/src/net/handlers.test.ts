@@ -421,7 +421,7 @@ describe('disconnect cleanup', () => {
     expect(player?.connected).toBe(false);
   });
 
-  it('display disconnect tears down its room (no orphan rooms accumulating)', async () => {
+  it('display disconnect leaves the room intact so F5 can resume it', async () => {
     const display = await connect();
     const code = await emitCreateRoom(display);
     expect(mgr.getRoom(code)).toBeDefined();
@@ -429,27 +429,48 @@ describe('disconnect cleanup', () => {
     display.disconnect();
     await sleep(50);
 
-    expect(mgr.getRoom(code)).toBeUndefined();
+    // Room must persist for display:join_room to find it on F5.
+    expect(mgr.getRoom(code)).toBeDefined();
   });
 
-  it('display disconnect emits room:ended to phones and clears their state', async () => {
-    const display = await connect();
-    const code = await emitCreateRoom(display);
+  it('a fresh display socket can resume the same room after the previous display disconnects (F5 flow)', async () => {
+    const display1 = await connect();
+    const code = await emitCreateRoom(display1);
+
+    display1.disconnect();
+    await sleep(50);
+
+    const display2 = await connect();
+    const res = await emitJoinRoom(display2, code);
+    expect(res.ok).toBe(true);
+    expect((serverSocketFor(display2)?.data as { displayRoomCode?: string }).displayRoomCode).toBe(code);
+  });
+
+  it('phone players keep their connected=true state when the display refreshes', async () => {
+    const display1 = await connect();
+    const code = await emitCreateRoom(display1);
 
     const p1 = await connect();
+    const p2 = await connect();
     await emitPhoneJoin(p1, code);
-    const phoneSSock = serverSocketFor(p1);
-    const playerId = (phoneSSock?.data as { playerId?: string }).playerId!;
+    await emitPhoneJoin(p2, code);
 
-    const ended = new Promise<void>((resolve) => p1.once('room:ended', () => resolve()));
+    // Display refresh: old socket goes away, fresh socket resumes via join_room.
+    display1.disconnect();
+    await sleep(50);
+    const display2 = await connect();
+    await emitJoinRoom(display2, code);
 
-    display.disconnect();
+    const room = mgr.getRoom(code);
+    expect(room).toBeDefined();
+    const players = [...(room?.players.values() ?? [])];
+    expect(players.length).toBe(2);
+    expect(players.every((p) => p.connected)).toBe(true);
 
-    await Promise.race([
-      ended,
-      sleep(500).then(() => Promise.reject(new Error('room:ended not received'))),
-    ]);
-    expect(socketByPlayerId.has(playerId)).toBe(false);
+    // request_start must be honored — this is the bug the user just reported.
+    display2.emit('client:request_start');
+    await sleep(50);
+    expect(mgr.getRoom(code)?.phase).toBe('countdown');
   });
 });
 
