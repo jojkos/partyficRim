@@ -187,6 +187,7 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
       const p = room?.players.get(data.playerId);
       if (!p || !room) return;
       if (index < 0 || index > 3) return;
+      if (p.mode === 'on_foot') return; // robot controls are inert while on foot
       p.selected[index] = on;
       pushFeed(room, { ts: Date.now(), role: p.role, kind: 'select', detail: `OPT ${index + 1} ${on ? 'ON' : 'OFF'}` });
       log('action', `${data.roomCode} select player=${p.role} index=${index} on=${on}`);
@@ -199,6 +200,7 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
       const p = room?.players.get(data.playerId);
       if (!p || !room) return;
       if (index < 0 || index > 3) return;
+      if (p.mode === 'on_foot') return; // robot controls are inert while on foot
       // Toggle: tap same quadrant again to deselect.
       p.quadrant = p.quadrant === index ? null : index;
       const labels = ['NW', 'NE', 'SW', 'SE'];
