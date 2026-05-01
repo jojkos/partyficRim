@@ -45,15 +45,6 @@ export function PlayPage() {
   const [error, setError] = useState<string | null>(null);
   const [snap, setSnap] = useState<PhoneSnapshot | null>(null);
 
-  // Disconnect on unmount — kills the StrictMode orphan socket from the
-  // discarded first useMemo factory call.
-  useEffect(() => {
-    return () => {
-      console.log('[phone] disconnecting socket', socket.id);
-      socket.disconnect();
-    };
-  }, [socket]);
-
   useEffect(() => {
     if (!roomCode || roomCode.length !== 4) return;
     const session = loadSession();
