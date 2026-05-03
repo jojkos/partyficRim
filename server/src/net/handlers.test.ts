@@ -230,6 +230,38 @@ describe('phone:join', () => {
     if (!r4.ok) expect(r4.error).toBe('room_full');
   });
 
+  it('is idempotent when the same socket sends phone:join twice', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+
+    const phone = await connect();
+    const r1 = await emitPhoneJoin(phone, code);
+    const r2 = await emitPhoneJoin(phone, code);
+
+    expect(r1.ok).toBe(true);
+    expect(r2.ok).toBe(true);
+    if (r1.ok && r2.ok) {
+      expect(r2.sessionId).toBe(r1.sessionId);
+    }
+    expect(mgr.getRoom(code)?.players.size).toBe(1);
+  });
+
+  it('removes the old player record when the same socket joins a different room', async () => {
+    const display1 = await connect();
+    const code1 = await emitCreateRoom(display1);
+    const display2 = await connect();
+    const code2 = await emitCreateRoom(display2);
+
+    const phone = await connect();
+    await emitPhoneJoin(phone, code1);
+    expect(mgr.getRoom(code1)?.players.size).toBe(1);
+
+    const res = await emitPhoneJoin(phone, code2);
+    expect(res.ok).toBe(true);
+    expect(mgr.getRoom(code1)?.players.size).toBe(0);
+    expect(mgr.getRoom(code2)?.players.size).toBe(1);
+  });
+
   it('resumes by sessionId even when both slots appear filled', async () => {
     const display = await connect();
     const code = await emitCreateRoom(display);
@@ -255,6 +287,30 @@ describe('phone:join', () => {
     const r1b = await emitPhoneJoin(p1b, code, sessionId1);
     expect(r1b.ok).toBe(true);
     if (r1b.ok) expect(r1b.role).toBe(role1);
+  });
+
+  it('ignores the old socket disconnect after a session resumes on a new socket', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+
+    const p1 = await connect();
+    const r1 = await emitPhoneJoin(p1, code);
+    expect(r1.ok).toBe(true);
+    if (!r1.ok) return;
+    await claimRole(p1, 'defense');
+
+    const p1b = await connect();
+    const r1b = await emitPhoneJoin(p1b, code, r1.sessionId);
+    expect(r1b.ok).toBe(true);
+
+    p1.disconnect();
+    await sleep(50);
+
+    const room = mgr.getRoom(code)!;
+    const player = [...room.players.values()].find((p) => p.sessionId === r1.sessionId);
+    expect(player?.connected).toBe(true);
+    expect(player?.role).toBe('defense');
+    expect(socketByPlayerId.get(player!.id)?.id).toBe(p1b.id);
   });
 
   it('treats unknown sessionId as a fresh join in a half-empty room', async () => {
@@ -303,6 +359,33 @@ describe('phone:join', () => {
 
     expect(r4.ok).toBe(true);
     expect(mgr.getRoom(code)?.players.size).toBe(3);
+  });
+
+  it('replaces a disconnected claimed player when a fresh phone joins a full lobby', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+
+    const p1 = await connect();
+    const p2 = await connect();
+    const p3 = await connect();
+    await joinAndClaim(p1, code, 'defense');
+    await joinAndClaim(p2, code, 'repair');
+    await joinAndClaim(p3, code, 'weapons');
+    p3.disconnect();
+    await sleep(50);
+
+    const p4 = await connect();
+    const r4 = await emitPhoneJoin(p4, code);
+    expect(r4.ok).toBe(true);
+    expect(mgr.getRoom(code)?.players.size).toBe(3);
+
+    await claimRole(p4, 'weapons');
+    p4.emit('client:request_start');
+    await sleep(50);
+
+    const room = mgr.getRoom(code)!;
+    expect([...room.players.values()].filter((p) => p.connected).length).toBe(3);
+    expect(room.phase).toBe('countdown');
   });
 
   it('allows a disconnected claimed role to be claimed by a connected player', async () => {
@@ -841,4 +924,3 @@ describe('phone:fire', () => {
     expect(room.attacks.length).toBe(0);
   });
 });
-

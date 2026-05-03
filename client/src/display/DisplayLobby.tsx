@@ -19,7 +19,7 @@ export function DisplayLobby({ socket, roomCode, snap, onResetRoom }: Props) {
     QRCode.toDataURL(joinUrl, { width: 320, margin: 1 }).then(setQrDataUrl);
   }, [roomCode]);
 
-  const playerCount = snap?.players.length ?? 0;
+  const playerCount = snap?.players.filter((p) => p.connected).length ?? 0;
   const claims = snap?.roleClaims;
   const allClaimed = Boolean(claims?.defense && claims.repair && claims.weapons);
   const countdown = snap?.phase === 'countdown'

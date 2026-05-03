@@ -35,11 +35,46 @@ function pruneDisconnectedUnclaimed(room: Room): void {
   }
 }
 
+function removeDisconnectedPlayer(room: Room, playerId: string): void {
+  const p = room.players.get(playerId);
+  if (!p || p.connected) return;
+  const oldRole = p.role;
+  room.players.delete(playerId);
+  socketByPlayerId.delete(playerId);
+  if (oldRole === 'defense') room.shieldQuadrant = null;
+  if (oldRole === 'weapons') room.attackQuadrant = null;
+}
+
+function pruneDisconnectedPlayerForFreshJoin(room: Room): boolean {
+  pruneDisconnectedUnclaimed(room);
+  if (room.players.size < 3) return true;
+  if (room.phase !== 'lobby') return false;
+
+  for (const [id, p] of room.players) {
+    if (!p.connected) {
+      removeDisconnectedPlayer(room, id);
+      return true;
+    }
+  }
+  return false;
+}
+
 function cleanWeaponCoreSelection(room: Room): void {
   const available = new Set(offeredCores(room));
   const weapons = playerForRole(room, 'weapons');
   if (!weapons) return;
   weapons.weaponSelectedCores = weapons.weaponSelectedCores.filter((type) => available.has(type));
+}
+
+function bindPhoneSocket(socket: S, room: Room, playerId: string): void {
+  const previous = socketByPlayerId.get(playerId);
+  if (previous && previous.id !== socket.id) {
+    previous.leave(`room:${room.code}:phones`);
+    previous.data = {};
+  }
+  socket.data = { ...(socket.data ?? {}), roomCode: room.code, playerId };
+  socket.join(`room:${room.code}:phones`);
+  socketByPlayerId.set(playerId, socket);
 }
 
 function removePhoneFromRoom(socket: S, mgr: RoomManager): boolean {
@@ -199,22 +234,38 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
         log('room', `${roomCode} phone join refused: no_such_room (socket=${socket.id})`);
         return cb({ ok: false, error: 'no_such_room' });
       }
+
+      const existingData = socket.data as { roomCode?: string; playerId?: string } | undefined;
+      if (existingData?.roomCode && existingData.playerId) {
+        if (existingData.roomCode === room.code) {
+          const existingPlayer = room.players.get(existingData.playerId);
+          if (existingPlayer) {
+            existingPlayer.connected = true;
+            bindPhoneSocket(socket, room, existingPlayer.id);
+            log('room', `${roomCode} phone join idempotent role=${existingPlayer.role} (socket=${socket.id})`);
+            return cb({ ok: true, role: existingPlayer.role, sessionId: existingPlayer.sessionId });
+          }
+          socket.leave(`room:${room.code}:phones`);
+          socket.data = {};
+        } else {
+          removePhoneFromRoom(socket, mgr);
+        }
+      }
+
       pruneDisconnectedUnclaimed(room);
 
       if (sessionId) {
         for (const p of room.players.values()) {
           if (p.sessionId === sessionId) {
             p.connected = true;
-            socket.data = { roomCode, playerId: p.id };
-            socket.join(`room:${room.code}:phones`);
-            socketByPlayerId.set(p.id, socket);
+            bindPhoneSocket(socket, room, p.id);
             log('room', `${roomCode} phone resume role=${p.role} (socket=${socket.id})`);
             return cb({ ok: true, role: p.role, sessionId });
           }
         }
       }
 
-      if (room.players.size >= 3) {
+      if (!pruneDisconnectedPlayerForFreshJoin(room)) {
         log('room', `${roomCode} phone join refused: room_full (socket=${socket.id})`);
         return cb({ ok: false, error: 'room_full' });
       }
@@ -236,9 +287,7 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
         selectedAttackKind: null,
         quadrant: null,
       });
-      socket.data = { roomCode, playerId: id };
-      socket.join(`room:${room.code}:phones`);
-      socketByPlayerId.set(id, socket);
+      bindPhoneSocket(socket, room, id);
       log('room', `${roomCode} phone joined unclaimed (count=${room.players.size}) (socket=${socket.id})`);
       cb({ ok: true, role: null, sessionId: newSessionId });
     });
@@ -269,13 +318,9 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
       }
       if (!['defense', 'repair', 'weapons'].includes(role)) return cb?.({ ok: false, role: p.role, error: 'bad_role' });
       if (roleIsClaimed(room, role, p.id)) return cb?.({ ok: false, role: p.role, error: 'claimed' });
-      for (const other of room.players.values()) {
+      for (const other of [...room.players.values()]) {
         if (other.id !== p.id && other.role === role && !other.connected) {
-          other.role = null;
-          other.quadrant = null;
-          other.selectedCores = [];
-          other.weaponSelectedCores = [];
-          other.selectedAttackKind = null;
+          removeDisconnectedPlayer(room, other.id);
         }
       }
 
@@ -451,6 +496,11 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
       // /display?new=1 path to explicitly destroy a room.
 
       if (data?.playerId) {
+        const current = socketByPlayerId.get(data.playerId);
+        if (current && current.id !== socket.id) {
+          log('room', `${data.roomCode} stale disconnect ignored for player ${data.playerId.slice(0, 8)}`);
+          return;
+        }
         const room = mgr.getRoom(data.roomCode ?? '');
         const p = room?.players.get(data.playerId);
         if (p) {

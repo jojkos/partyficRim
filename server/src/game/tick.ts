@@ -22,15 +22,19 @@ const PLAYER_HALF = 10;
 const TILE = 32;
 const COUNTDOWN_MS = 3000;
 
-function allConnected(room: Room): boolean {
-  for (const p of room.players.values()) if (!p.connected) return false;
-  return true;
+function connectedPlayerCount(room: Room): number {
+  let count = 0;
+  for (const p of room.players.values()) if (p.connected) count++;
+  return count;
+}
+
+function allRequiredRolesClaimed(room: Room): boolean {
+  const claims = roleClaims(room);
+  return Boolean(claims.defense && claims.repair && claims.weapons);
 }
 
 export function requestStart(room: Room): void {
-  const claims = roleClaims(room);
-  const allRolesClaimed = claims.defense && claims.repair && claims.weapons;
-  if (room.phase === 'lobby' && room.players.size >= 3 && allConnected(room) && allRolesClaimed) {
+  if (room.phase === 'lobby' && connectedPlayerCount(room) >= 3 && allRequiredRolesClaimed(room)) {
     setPhase(room, 'countdown');
     room.countdownMsRemaining = COUNTDOWN_MS;
   }
@@ -38,7 +42,6 @@ export function requestStart(room: Room): void {
 
 export function tickRoom(room: Room, dt: number): void {
   const dtMs = dt * 1000;
-  const playerCount = room.players.size;
 
   if (room.phase === 'lobby') {
     // start is now manual via requestStart(); the lobby just sits here.
@@ -46,7 +49,7 @@ export function tickRoom(room: Room, dt: number): void {
   }
 
   if (room.phase === 'countdown') {
-    if (playerCount < 3 || !allConnected(room)) {
+    if (connectedPlayerCount(room) < 3 || !allRequiredRolesClaimed(room)) {
       setPhase(room, 'lobby');
       room.countdownMsRemaining = 0;
       return;
@@ -60,7 +63,7 @@ export function tickRoom(room: Room, dt: number): void {
   }
 
   if (room.phase === 'playing') {
-    if (!allConnected(room)) {
+    if (!allRequiredRolesClaimed(room)) {
       setPhase(room, 'paused');
       return;
     }
@@ -139,7 +142,7 @@ export function tickRoom(room: Room, dt: number): void {
   }
 
   if (room.phase === 'paused') {
-    if (allConnected(room) && playerCount >= 3) {
+    if (connectedPlayerCount(room) >= 3 && allRequiredRolesClaimed(room)) {
       setPhase(room, 'playing');
     }
     return;
@@ -183,7 +186,7 @@ export function buildPhoneSnapshot(room: Room, playerId: string): PhoneSnapshot 
     mode: me.mode,
     occupancy,
     nearRobot: me.mode === 'on_foot' ? isNearRobot(me.pos, room.robot, TILE) : true,
-    playerCount: room.players.size,
+    playerCount: connectedPlayerCount(room),
     roleClaims: roleClaims(room),
     inventory: me.inventory.slice(),
     selectedCores: me.selectedCores.slice(),
