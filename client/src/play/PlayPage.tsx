@@ -50,22 +50,29 @@ export function PlayPage() {
     if (!roomCode || roomCode.length !== 4) return;
     setSnap(null);
     setRole(null);
-    const joinSeq = ++joinSeqRef.current;
-    const session = loadSession();
-    // Only send sessionId if it's tied to the same room we're joining.
-    const sessionId = session?.roomCode === roomCode ? session.sessionId : undefined;
 
-    socket.emit('phone:join', { roomCode, sessionId }, (res) => {
-      if (joinSeq !== joinSeqRef.current) return;
-      if (!res.ok) {
-        clearSession();
-        setError(res.error);
-        return;
-      }
-      saveSession({ roomCode, sessionId: res.sessionId });
-      setRole(res.role);
-      setError(null);
-    });
+    const join = () => {
+      const joinSeq = ++joinSeqRef.current;
+      const session = loadSession();
+      // Only send sessionId if it's tied to the same room we're joining.
+      const sessionId = session?.roomCode === roomCode ? session.sessionId : undefined;
+      console.log(`[phone] join seq=${joinSeq} room=${roomCode} resume=${Boolean(sessionId)}`);
+      socket.emit('phone:join', { roomCode, sessionId }, (res) => {
+        if (joinSeq !== joinSeqRef.current) return;
+        if (!res.ok) {
+          clearSession();
+          setError(res.error);
+          return;
+        }
+        saveSession({ roomCode, sessionId: res.sessionId });
+        setRole(res.role);
+        setError(null);
+      });
+    };
+
+    if (socket.connected) join();
+    socket.on('connect', join);
+    return () => { socket.off('connect', join); };
   }, [socket, roomCode]);
 
   useEffect(() => {
