@@ -64,6 +64,7 @@ export function tickRoom(room: Room, dt: number): void {
 
   if (room.phase === 'playing') {
     if (!allRequiredRolesClaimed(room)) {
+      room.pauseStartedAt = Date.now();
       setPhase(room, 'paused');
       return;
     }
@@ -143,10 +144,23 @@ export function tickRoom(room: Room, dt: number): void {
 
   if (room.phase === 'paused') {
     if (connectedPlayerCount(room) >= 3 && allRequiredRolesClaimed(room)) {
+      resumeFromPause(room);
       setPhase(room, 'playing');
     }
     return;
   }
+}
+
+function resumeFromPause(room: Room): void {
+  if (room.pauseStartedAt === null) return;
+  const pauseDuration = Date.now() - room.pauseStartedAt;
+  if (pauseDuration > 0) {
+    for (const bomb of room.bombs) bomb.fuseAt += pauseDuration;
+    room.lastCoreSpawnAt += pauseDuration;
+    room.lastEnemySpawnAt += pauseDuration;
+    room.lastEnemyContactDamageAt += pauseDuration;
+  }
+  room.pauseStartedAt = null;
 }
 
 export function buildDisplaySnapshot(room: Room): DisplaySnapshot {

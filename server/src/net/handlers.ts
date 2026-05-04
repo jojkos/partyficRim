@@ -92,6 +92,7 @@ function removePhoneFromRoom(socket: S, mgr: RoomManager): boolean {
       room.countdownMsRemaining = 0;
     } else if (room.phase === 'playing') {
       room.phase = 'paused';
+      room.pauseStartedAt = Date.now();
     }
     cleanWeaponCoreSelection(room);
     pushFeed(room, { ts: Date.now(), role: oldRole, kind: 'role', detail: 'left room' });
@@ -125,6 +126,7 @@ function restartRoom(io: IO, mgr: RoomManager, oldCode: string): { ok: boolean; 
 function resetRoomInPlace(room: Room): void {
   room.phase = 'lobby';
   room.countdownMsRemaining = 0;
+  room.pauseStartedAt = null;
   room.robot = { x: 400, y: 300 };
   room.cores.clear();
   room.enemies.clear();
@@ -245,6 +247,7 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
             log('room', `${roomCode} phone join idempotent role=${existingPlayer.role} (socket=${socket.id})`);
             return cb({ ok: true, role: existingPlayer.role, sessionId: existingPlayer.sessionId });
           }
+          socketByPlayerId.delete(existingData.playerId);
           socket.leave(`room:${room.code}:phones`);
           socket.data = {};
         } else {
@@ -503,8 +506,10 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
         }
         const room = mgr.getRoom(data.roomCode ?? '');
         const p = room?.players.get(data.playerId);
-        if (p) {
+        if (p && room) {
           p.connected = false;
+          if (p.role === 'defense') room.shieldQuadrant = null;
+          if (p.role === 'weapons') room.attackQuadrant = null;
           log('room', `${data.roomCode} player ${p.role} disconnected`);
         }
         socketByPlayerId.delete(data.playerId);

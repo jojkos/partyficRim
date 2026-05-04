@@ -114,7 +114,7 @@ export function PhoneGame({ socket, role, roomCode: _roomCode, onLeave }: Props)
             </div>
           )}
           <button
-            onClick={onAction}
+            onPointerDown={(e) => { if (!actionDisabled) { e.preventDefault(); onAction(); } }}
             disabled={actionDisabled}
             style={actionButton(color, actionDisabled)}
           >
@@ -146,7 +146,7 @@ export function PhoneGame({ socket, role, roomCode: _roomCode, onLeave }: Props)
             return (
               <button
                 key={i}
-                onClick={() => onQuadrant(i)}
+                onPointerDown={(e) => { if (!controlsDisabled) { e.preventDefault(); onQuadrant(i); } }}
                 disabled={controlsDisabled}
                 style={{
                   border: `2px solid ${on ? color : hp < 25 ? '#ff5577' : 'rgba(255,255,255,0.25)'}`,
@@ -168,7 +168,7 @@ export function PhoneGame({ socket, role, roomCode: _roomCode, onLeave }: Props)
         </div>
       </div>
       <button
-        onClick={snap?.phase === 'gameover' ? onRestart : onLeave}
+        onPointerDown={(e) => { e.preventDefault(); (snap?.phase === 'gameover' ? onRestart : onLeave)(); }}
         style={{
           position: 'fixed',
           top: 42,
@@ -208,7 +208,7 @@ function CoreGrid({
         return (
           <button
             key={i}
-            onClick={() => onSelect(i)}
+            onPointerDown={(e) => { if (!(disabled || !type)) { e.preventDefault(); onSelect(i); } }}
             disabled={disabled || !type}
             style={{
               border: `2px solid ${type ? CORE_COLORS[type] : 'rgba(255,255,255,0.12)'}`,
@@ -236,7 +236,7 @@ function AttackGrid({ selected, disabled, onSelect }: { selected: AttackKind | n
       {ATTACKS.map((kind) => (
         <button
           key={kind}
-          onClick={() => onSelect(kind)}
+          onPointerDown={(e) => { if (!disabled) { e.preventDefault(); onSelect(kind); } }}
           disabled={disabled}
           style={{
             border: `2px solid ${selected === kind ? '#ffe066' : 'rgba(255,255,255,0.25)'}`,

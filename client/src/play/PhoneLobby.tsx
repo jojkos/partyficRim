@@ -20,7 +20,7 @@ export function PhoneLobby({ socket, role, roomCode, snap, onLeave }: Props) {
   const [pendingRole, setPendingRole] = useState<Role | null>(null);
   const color = role ? ROLE_COLOR[role] : '#88ddaa';
 
-  const playerCount = snap?.playerCount ?? 1;
+  const playerCount = snap?.playerCount ?? 0;
   const claims = snap?.roleClaims;
   const allClaimed = Boolean(claims?.defense && claims.repair && claims.weapons);
   const canStart = playerCount >= 3 && allClaimed && snap?.phase === 'lobby';
