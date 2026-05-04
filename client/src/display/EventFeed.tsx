@@ -33,7 +33,7 @@ export function EventFeed({ events }: Props) {
           const role = e.role ?? 'room';
           const color = e.role ? ROLE_COLOR[e.role] : '#aaa';
           return (
-        <div key={`${e.ts}-${i}`} style={{
+        <div key={`${e.ts}-${e.kind}-${e.role ?? 'room'}-${e.detail}`} style={{
           fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
           fontSize: 12,
           display: 'flex', gap: 8, alignItems: 'baseline',

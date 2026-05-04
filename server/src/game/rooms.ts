@@ -30,6 +30,7 @@ export interface Room {
   code: string;
   phase: Phase;
   countdownMsRemaining: number;
+  pauseStartedAt: number | null;
   robot: Vec2;
   players: Map<string, RoomPlayer>;
   cores: Map<string, CoreState>;
@@ -75,6 +76,7 @@ export class RoomManager {
       code,
       phase: 'lobby',
       countdownMsRemaining: 0,
+      pauseStartedAt: null,
       robot: { x: 400, y: 300 },
       players: new Map(),
       cores: new Map(),
@@ -122,7 +124,7 @@ export function roleClaims(room: Room): Record<Role, string | null> {
 }
 
 export function playerForRole(room: Room, role: Role): RoomPlayer | undefined {
-  return [...room.players.values()].find((p) => p.role === role);
+  return [...room.players.values()].find((p) => p.connected && p.role === role);
 }
 
 export function addAttack(room: Room, kind: AttackKind, quadrant: Quadrant, colors: string[], pos?: Vec2): void {
