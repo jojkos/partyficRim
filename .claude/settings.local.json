@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cp \"/Users/michalkuba/.claude/projects/-Users-michalkuba-www-partyficRim/64f3f7ea-d07e-4af0-85ca-d0541f3e2065/tool-results/webfetch-1777906217782-vvfyww.bin\" /tmp/design.gz)",
+      "Bash(gunzip -f /tmp/design.gz)",
+      "Read(//tmp/**)",
+      "Read(//private/tmp/**)",
+      "Bash(tar xf *)"
+    ]
+  }
+}
