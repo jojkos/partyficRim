@@ -4,6 +4,8 @@ import { DisplayLobby } from './DisplayLobby.js';
 import { useDisplayState } from './useDisplayState.js';
 import { PixiArena } from './PixiArena.js';
 import { HudOverlay } from './HudOverlay.js';
+import { HudBar } from './HudBar.js';
+import { SvgArena } from './SvgArena.js';
 import { EventFeed } from './EventFeed.js';
 
 const STORAGE_KEY = 'partyficrim.displayRoomCode';
@@ -13,6 +15,8 @@ export function DisplayPage() {
   const snap = useDisplayState(socket);
   const [roomCode, setRoomCode] = useState<string | null>(null);
   const requestedRef = useRef(false);
+  const [elapsed, setElapsed] = useState(0);
+  const playingRef = useRef(false);
 
   useEffect(() => {
     if (requestedRef.current) return;
@@ -27,7 +31,6 @@ export function DisplayPage() {
 
     const createNew = () => {
       socket.emit('display:create_room', ({ roomCode: code }) => {
-        console.log('[display] created new room', code);
         localStorage.setItem(STORAGE_KEY, code);
         setRoomCode(code);
       });
@@ -37,12 +40,7 @@ export function DisplayPage() {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored && !forceNew) {
         socket.emit('display:join_room', { roomCode: stored }, (res) => {
-          if (res.ok) {
-            console.log('[display] resumed stored room', stored);
-            setRoomCode(stored);
-            return;
-          }
-          console.log('[display] stored room gone, creating new');
+          if (res.ok) { setRoomCode(stored); return; }
           createNew();
         });
       } else {
@@ -66,10 +64,24 @@ export function DisplayPage() {
     return () => { socket.off('display:room_restarted', onRestarted); };
   }, [socket]);
 
+  // survival timer: counts up while phase === 'playing'
+  useEffect(() => {
+    const isPlaying = snap?.phase === 'playing';
+    if (isPlaying && !playingRef.current) {
+      playingRef.current = true;
+      setElapsed(0);
+    }
+    if (!isPlaying) playingRef.current = false;
+  }, [snap?.phase]);
+
+  useEffect(() => {
+    if (snap?.phase !== 'playing') return;
+    const id = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(id);
+  }, [snap?.phase]);
+
   const onResetRoom = () => {
-    console.log('[display] new_game requested');
     socket.emit('display:end_room', ({ newRoomCode }) => {
-      console.log('[display] new room ->', newRoomCode);
       localStorage.setItem(STORAGE_KEY, newRoomCode);
       setRoomCode(newRoomCode);
     });
@@ -85,11 +97,20 @@ export function DisplayPage() {
       </>
     );
   }
+
   return (
-    <>
-      <PixiArena snap={snap} />
-      <HudOverlay snap={snap} onResetRoom={onResetRoom} />
-      <EventFeed events={events} />
-    </>
+    <div style={{
+      position: 'fixed', inset: 0,
+      display: 'flex', flexDirection: 'column',
+      background: '#0a0b14',
+    }}>
+      <HudBar snap={snap} elapsed={elapsed} />
+      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+        <SvgArena snap={snap} />
+        <PixiArena snap={snap} />
+        <EventFeed events={events} />
+        <HudOverlay onResetRoom={onResetRoom} phase={snap.phase} />
+      </div>
+    </div>
   );
 }
