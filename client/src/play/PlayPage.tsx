@@ -3,6 +3,8 @@ import { createSocket } from '../socket.js';
 import type { Role, PhoneSnapshot } from '@partyficrim/shared';
 import { PhoneLobby } from './PhoneLobby.js';
 import { PhoneGame } from './PhoneGame.js';
+import { Robot } from '../display/Sprites.js';
+import { PR, Wordmark, bevelButtonStyle } from '../ui/theme.js';
 
 const SESSION_KEY = 'partyficrim.session';
 
@@ -111,29 +113,94 @@ export function PlayPage() {
 
   if (!roomCode || roomCode.length !== 4 || error) {
     return (
-      <form
-        style={{ padding: 24 }}
-        onSubmit={(e) => {
-          e.preventDefault();
-          const v = (new FormData(e.currentTarget).get('code') as string).toUpperCase();
-          if (v.length === 4) {
-            setError(null);
-            setSnap(null);
-            setRole(null);
-            setRoomCode(v);
-          }
-        }}
-      >
-        <h1>Join a room</h1>
-        {error && (
-          <div style={{ marginBottom: 16, color: '#ff8888' }}>
-            Couldn't join {roomCode}: {error}. Try a different code.
+      <div style={{
+        position: 'relative', width: '100%', height: '100%', overflow: 'hidden',
+        background: `linear-gradient(180deg, #2d1b4d 0%, ${PR.color.bg} 100%)`,
+        fontFamily: PR.font.sans, color: PR.color.paper,
+      }}>
+        <form
+          style={{
+            position: 'absolute', inset: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            gap: 36, padding: 28,
+          }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            const v = (new FormData(e.currentTarget).get('code') as string).toUpperCase();
+            if (v.length === 4) {
+              setError(null);
+              setSnap(null);
+              setRole(null);
+              setRoomCode(v);
+            }
+          }}
+        >
+          <div style={{ flex: 1, maxWidth: 320 }}>
+            <Wordmark size={30} />
+            <div style={{
+              font: `700 11px ${PR.font.sans}`, letterSpacing: 3,
+              color: PR.color.sun, marginTop: 18, marginBottom: 10,
+            }}>
+              ENTER ROOM CODE
+            </div>
+            {error && (
+              <div style={{
+                marginBottom: 12, color: PR.color.cherry,
+                font: `700 11px ${PR.font.sans}`, letterSpacing: 1,
+              }}>
+                Couldn't join {roomCode}: {error}.
+              </div>
+            )}
+            <input
+              name="code"
+              maxLength={4}
+              placeholder="CHIP"
+              autoCapitalize="characters"
+              autoComplete="off"
+              spellCheck={false}
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                background: PR.color.cardCream, color: PR.color.ink,
+                border: `3px solid ${PR.color.ink}`, borderRadius: PR.r.md,
+                boxShadow: PR.shadow(3, 4, PR.color.ink),
+                padding: '14px 18px',
+                font: `400 40px ${PR.font.display}`, letterSpacing: 12, lineHeight: 1,
+                textAlign: 'center', outline: 'none', textTransform: 'uppercase',
+              }}
+            />
+            <button
+              type="submit"
+              className="pr-bevel-btn"
+              style={{
+                ...bevelButtonStyle({ bg: PR.color.flame, size: 'md' }),
+                marginTop: 18, width: '100%', display: 'block',
+                font: `400 24px ${PR.font.display}`, letterSpacing: 3,
+                padding: '10px 0',
+                border: `3px solid ${PR.color.ink}`,
+              }}
+            >
+              JOIN GAME
+            </button>
+            <div style={{
+              marginTop: 12,
+              font: `500 11px ${PR.font.sans}`, opacity: 0.6, textAlign: 'center',
+            }}>
+              or scan the QR on the host screen
+            </div>
           </div>
-        )}
-        <input name="code" maxLength={4} placeholder="ABCD" autoCapitalize="characters"
-               style={{ fontSize: 48, padding: 12, width: 200, letterSpacing: 8 }} />
-        <button type="submit" style={{ fontSize: 24, padding: 12, marginLeft: 12 }}>Join</button>
-      </form>
+          <div style={{
+            flex: '0 0 auto',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
+          }}>
+            <div style={{ animation: 'pr-bob-lg 2.4s ease-in-out infinite' }}>
+              <Robot size={140} />
+            </div>
+            <div style={{
+              font: `700 10px ${PR.font.sans}`, letterSpacing: 2, color: PR.color.sun,
+            }}>YOUR PILOT AWAITS</div>
+          </div>
+        </form>
+      </div>
     );
   }
 
