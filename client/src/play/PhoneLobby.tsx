@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
 import type { PhoneSnapshot, Role } from '@partyficrim/shared';
-import { ROLE_LABEL } from '@partyficrim/shared';
 import type { AppSocket } from '../socket.js';
 import { useLandscape } from './useLandscape.js';
+import { PR } from '../ui/theme.js';
 
-const ROLE_COLOR: Record<Role, string> = { defense: '#ff5577', repair: '#55c2ff', weapons: '#ffe066' };
-const ROLES: Role[] = ['defense', 'repair', 'weapons'];
+const ROLES: Role[] = ['defense', 'weapons', 'repair'];
 
 interface Props {
   socket: AppSocket;
@@ -18,7 +17,6 @@ interface Props {
 export function PhoneLobby({ socket, role, roomCode, snap, onLeave }: Props) {
   const { enterFullscreenLandscape, canFullscreen, isIOS, isStandalone } = useLandscape();
   const [pendingRole, setPendingRole] = useState<Role | null>(null);
-  const color = role ? ROLE_COLOR[role] : '#88ddaa';
 
   const playerCount = snap?.playerCount ?? 1;
   const claims = snap?.roleClaims;
@@ -39,103 +37,168 @@ export function PhoneLobby({ socket, role, roomCode, snap, onLeave }: Props) {
     if (pendingRole === role) setPendingRole(null);
   }, [pendingRole, role]);
 
+  if (showCountdown) {
+    return (
+      <div style={{
+        position: 'fixed', inset: 0,
+        background: `linear-gradient(180deg, #2d1b4d 0%, ${PR.color.bg} 100%)`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontFamily: PR.font.sans, color: PR.color.paper,
+      }}>
+        <div style={{
+          font: `400 56px ${PR.font.display}`, color: PR.color.sun, letterSpacing: 4,
+          textShadow: `3px 5px 0 ${PR.color.flameDk}, 6px 9px 0 ${PR.color.ink}`,
+          animation: 'pr-pulse 1s ease-in-out infinite',
+        }}>STARTING…</div>
+      </div>
+    );
+  }
+
   return (
     <div style={{
-      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-      height: '100%', gap: 18, padding: 20, textAlign: 'center',
+      position: 'fixed', inset: 0,
+      background: `linear-gradient(180deg, #2d1b4d 0%, ${PR.color.bg} 100%)`,
+      fontFamily: PR.font.sans, color: PR.color.paper,
+      padding: '12px 16px', boxSizing: 'border-box', overflow: 'hidden',
     }}>
-      <div style={{ fontSize: 16, opacity: 0.7 }}>Room {roomCode}</div>
-      <button
-        onClick={onLeave}
-        style={{
-          position: 'fixed', top: 12, right: 12,
-          padding: '8px 12px', borderRadius: 8,
-          border: '1px solid rgba(255,255,255,0.22)',
-          background: 'rgba(255,255,255,0.06)', color: '#ddd',
-          fontWeight: 700,
-        }}
-      >
-        Leave
-      </button>
-      <div style={{ fontSize: 26 }}>Pick your station</div>
+      <div style={{
+        position: 'absolute', top: 10, left: 16,
+        font: `700 11px ${PR.font.sans}`, letterSpacing: 2, color: PR.color.sun,
+      }}>
+        ROOM · {roomCode}
+      </div>
+      <button onClick={onLeave} style={{
+        position: 'absolute', top: 8, right: 12,
+        font: `700 11px ${PR.font.sans}`, letterSpacing: 1,
+        color: PR.color.paper, opacity: 0.7,
+        border: `1px solid ${PR.color.paper}33`, borderRadius: 6,
+        padding: '4px 10px', background: 'transparent', cursor: 'pointer',
+      }}>Leave</button>
 
-      {showCountdown ? (
-        <div style={{ fontSize: 32, fontWeight: 700 }}>Starting…</div>
-      ) : (
-        <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(120px, 1fr))', gap: 12, width: 'min(680px, 100%)' }}>
-            {ROLES.map((r) => {
-              const claimedBy = claims?.[r] ?? null;
-              const claimed = Boolean(claimedBy);
-              const mine = (pendingRole ?? role) === r;
-              const disabled = claimed && !mine;
-              return (
-                <button
-                  key={r}
-                  onClick={() => onClaim(r)}
-                  disabled={disabled}
-                  style={{
-                    minHeight: 104,
-                    padding: 12,
-                    borderRadius: 10,
-                    border: `2px solid ${mine ? ROLE_COLOR[r] : 'rgba(255,255,255,0.2)'}`,
-                    background: mine ? ROLE_COLOR[r] : disabled ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.08)',
-                    color: mine ? '#0a0a12' : disabled ? '#666' : '#fff',
-                    fontSize: 14,
-                    fontWeight: 800,
-                    letterSpacing: 1,
-                    cursor: disabled ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  {ROLE_LABEL[r]}
-                </button>
-              );
-            })}
-          </div>
-          {canFullscreen && !isStandalone && (
-            <button onClick={enterFullscreenLandscape} style={{
-              padding: '12px 24px', fontSize: 18, borderRadius: 10, border: 'none',
-              background: 'rgba(255,255,255,0.1)', color: '#fff', fontWeight: 600,
-            }}>
-              Tap to enter fullscreen
-            </button>
-          )}
-          {isIOS && !isStandalone && (
-            <div style={{
-              padding: '8px 14px', fontSize: 13, opacity: 0.7, maxWidth: 320,
-              borderRadius: 10, background: 'rgba(255,255,255,0.04)',
-            }}>
-              iPhone tip: tap Share → "Add to Home Screen" and open from there for fullscreen.
-              Otherwise, just rotate to landscape and play with the URL bar visible.
-            </div>
-          )}
+      <div style={{ position: 'absolute', top: 36, left: 16, right: 16, textAlign: 'center' }}>
+        <div style={{
+          font: `400 24px ${PR.font.display}`, letterSpacing: 2,
+          color: PR.color.paper, lineHeight: 1,
+        }}>PICK YOUR STATION</div>
+      </div>
 
-          <button
-            onClick={onStart}
-            disabled={!canStart}
-            style={{
-              marginTop: 8,
-              padding: '20px 40px',
-              fontSize: 28,
-              fontWeight: 800,
-              letterSpacing: 3,
-              borderRadius: 14,
-              border: 'none',
-              background: canStart ? '#88ddaa' : '#333',
-              color: canStart ? '#0a0a12' : '#666',
-              cursor: canStart ? 'pointer' : 'not-allowed',
-            }}
-          >
-            START
-          </button>
+      <div style={{
+        position: 'absolute', top: 78, left: 16, right: 16,
+        display: 'flex', gap: 10,
+      }}>
+        {ROLES.map((r) => {
+          const claimedBy = claims?.[r] ?? null;
+          const claimed = Boolean(claimedBy);
+          const mine = (pendingRole ?? role) === r;
+          const disabled = claimed && !mine;
+          return (
+            <PhoneRoleChip
+              key={r}
+              role={r}
+              mine={mine}
+              disabled={disabled}
+              onClick={() => onClaim(r)}
+            />
+          );
+        })}
+      </div>
 
-          <div style={{ fontSize: 14, opacity: 0.6 }}>
-            {canStart
-              ? 'Anyone can press START'
-              : `Waiting for 3 roles… (${playerCount}/3)`}
-          </div>
-        </>
+      {canFullscreen && !isStandalone && (
+        <button onClick={enterFullscreenLandscape} style={{
+          position: 'absolute', bottom: 56, left: '50%', transform: 'translateX(-50%)',
+          padding: '6px 14px',
+          font: `700 10px ${PR.font.sans}`, letterSpacing: 2,
+          background: 'rgba(255,255,255,0.08)', color: PR.color.paper,
+          border: `1px solid ${PR.color.paper}33`, borderRadius: 6, cursor: 'pointer',
+        }}>
+          ⛶ enter fullscreen
+        </button>
       )}
+      {isIOS && !isStandalone && (
+        <div style={{
+          position: 'absolute', bottom: 56, left: 16, right: 16, textAlign: 'center',
+          font: `500 9px ${PR.font.sans}`, letterSpacing: 0.5, opacity: 0.55,
+        }}>
+          iPhone tip: Share → "Add to Home Screen" for fullscreen.
+        </div>
+      )}
+
+      <button
+        onClick={onStart}
+        disabled={!canStart}
+        className={canStart ? 'pr-bevel-btn' : undefined}
+        style={{
+          position: 'absolute', bottom: 18, left: '50%', transform: 'translateX(-50%)',
+          background: canStart ? PR.color.leaf : '#33333a',
+          color: canStart ? PR.color.ink : '#666',
+          border: `3px solid ${canStart ? PR.color.ink : '#444'}`,
+          borderRadius: PR.r.md,
+          padding: '10px 44px',
+          boxShadow: canStart ? PR.shadow(4, 5, PR.color.ink) : 'none',
+          font: `400 22px ${PR.font.display}`, letterSpacing: 3,
+          cursor: canStart ? 'pointer' : 'not-allowed',
+        }}>
+        START
+      </button>
+      <div style={{
+        position: 'absolute', bottom: 4, left: 0, right: 0, textAlign: 'center',
+        font: `500 9px ${PR.font.sans}`, letterSpacing: 1, opacity: 0.5,
+      }}>
+        {canStart
+          ? 'anyone can press START'
+          : `waiting for ${Math.max(0, 3 - playerCount)} more…`}
+      </div>
     </div>
+  );
+}
+
+interface ChipProps {
+  role: Role;
+  mine: boolean;
+  disabled: boolean;
+  onClick: () => void;
+}
+
+function PhoneRoleChip({ role, mine, disabled, onClick }: ChipProps) {
+  const c = PR.role[role];
+  let background: string;
+  if (mine) background = c;
+  else if (disabled) background = 'rgba(255,255,255,0.04)';
+  else background = PR.color.panel;
+  let statusLabel: string;
+  if (mine) statusLabel = '★ YOU';
+  else if (disabled) statusLabel = 'TAKEN';
+  else statusLabel = 'OPEN';
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={!disabled ? 'pr-bevel-btn' : undefined}
+      style={{
+        flex: 1, minWidth: 0,
+        background,
+        border: `3px solid ${mine ? PR.color.ink : c}`,
+        borderRadius: PR.r.md,
+        padding: '10px 8px',
+        boxShadow: mine ? PR.shadow(3, 4, PR.color.ink) : 'none',
+        opacity: disabled ? 0.55 : 1,
+        textAlign: 'center',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+      }}
+    >
+      <div style={{
+        width: 38, height: 38, margin: '0 auto 6px', borderRadius: '50%', background: c,
+        border: `3px solid ${PR.color.ink}`, display: 'grid', placeItems: 'center',
+        font: `400 20px ${PR.font.display}`, color: PR.color.ink,
+      }}>{role.charAt(0).toUpperCase()}</div>
+      <div style={{
+        font: `700 11px ${PR.font.sans}`, letterSpacing: 1.5,
+        color: mine ? PR.color.ink : c,
+      }}>{PR.roleLabel[role]}</div>
+      <div style={{
+        font: `700 9px ${PR.font.sans}`, marginTop: 4, opacity: 0.7, letterSpacing: 1,
+        color: mine ? PR.color.ink : PR.color.paper,
+      }}>{statusLabel}</div>
+    </button>
   );
 }

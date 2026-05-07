@@ -89,7 +89,7 @@ export function DisplayPage() {
 
   const events = snap?.eventFeed ?? [];
 
-  if (!snap || snap.phase === 'lobby' || snap.phase === 'countdown') {
+  if (!snap || snap.phase === 'lobby') {
     return (
       <>
         <DisplayLobby socket={socket} roomCode={roomCode} snap={snap} onResetRoom={onResetRoom} />
@@ -97,6 +97,10 @@ export function DisplayPage() {
       </>
     );
   }
+
+  const countdownSec = snap.phase === 'countdown'
+    ? Math.max(1, Math.ceil(snap.countdownMsRemaining / 1000))
+    : null;
 
   return (
     <div style={{
@@ -109,7 +113,7 @@ export function DisplayPage() {
         <SvgArena snap={snap} />
         <PixiArena snap={snap} />
         <EventFeed events={events} />
-        <HudOverlay onResetRoom={onResetRoom} phase={snap.phase} />
+        <HudOverlay onResetRoom={onResetRoom} phase={snap.phase} countdownSec={countdownSec} />
       </div>
     </div>
   );

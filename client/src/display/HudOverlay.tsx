@@ -1,9 +1,13 @@
+import { Robot, EnemySprite } from './Sprites.js';
+import { PR } from '../ui/theme.js';
+
 interface Props {
   onResetRoom: () => void;
   phase: string;
+  countdownSec?: number | null;
 }
 
-export function HudOverlay({ onResetRoom, phase }: Props) {
+export function HudOverlay({ onResetRoom, phase, countdownSec }: Props) {
   return (
     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 20 }}>
       {/* end-game button */}
@@ -16,7 +20,7 @@ export function HudOverlay({ onResetRoom, phase }: Props) {
           color: 'rgba(255,255,255,0.45)',
           border: '1px solid rgba(255,255,255,0.18)',
           borderRadius: 6, cursor: 'pointer',
-          fontFamily: "'JetBrains Mono', monospace",
+          fontFamily: PR.font.mono,
           letterSpacing: '0.1em',
           backdropFilter: 'blur(8px)',
         }}
@@ -25,7 +29,8 @@ export function HudOverlay({ onResetRoom, phase }: Props) {
       </button>
 
       {phase === 'paused' && <OverlayText text="PAUSED — WAITING FOR RECONNECT" />}
-      {phase === 'gameover' && <GameOverOverlay onRestart={onResetRoom} />}
+      {phase === 'countdown' && countdownSec != null && <CountdownOverlay n={countdownSec} />}
+      {phase === 'gameover' && <GameOverOverlay />}
     </div>
   );
 }
@@ -34,10 +39,10 @@ function OverlayText({ text }: { text: string }) {
   return (
     <div style={{
       position: 'absolute', inset: 0, pointerEvents: 'none',
-      background: 'rgba(0,0,0,0.7)',
+      background: 'rgba(20,8,40,0.7)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontFamily: "'Press Start 2P', monospace",
-      fontSize: 32, color: '#e8ecff',
+      fontFamily: PR.font.display,
+      fontSize: 56, color: PR.color.paper,
       letterSpacing: '0.08em', textAlign: 'center',
       padding: '0 48px',
     }}>
@@ -46,34 +51,87 @@ function OverlayText({ text }: { text: string }) {
   );
 }
 
-function GameOverOverlay({ onRestart }: { onRestart: () => void }) {
+function CountdownOverlay({ n }: { n: number }) {
+  return (
+    <div style={{
+      position: 'absolute', inset: 0, pointerEvents: 'none',
+      background: 'rgba(20,8,40,0.5)',
+      display: 'grid', placeItems: 'center',
+    }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24 }}>
+        <div style={{
+          font: `400 360px ${PR.font.display}`, color: PR.color.sun, lineHeight: 1,
+          textShadow: `8px 12px 0 ${PR.color.flameDk}, 16px 22px 0 ${PR.color.ink}`,
+          animation: 'pr-pulse 1s ease-in-out infinite',
+        }}>{n}</div>
+        <div style={{
+          font: `700 24px ${PR.font.sans}`, letterSpacing: 8, color: PR.color.paper,
+        }}>GET READY</div>
+      </div>
+    </div>
+  );
+}
+
+function GameOverOverlay() {
   return (
     <div style={{
       position: 'absolute', inset: 0, pointerEvents: 'auto',
-      background: 'rgba(0,0,0,0.75)',
-      display: 'flex', flexDirection: 'column', gap: 32,
-      alignItems: 'center', justifyContent: 'center',
+      overflow: 'hidden',
+      background: `radial-gradient(ellipse at center, ${PR.color.cherry} 0%, ${PR.color.flameDk} 55%, ${PR.color.bgDeep} 100%)`,
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      fontFamily: PR.font.sans, color: PR.color.paper,
     }}>
+      {/* diagonal stripes */}
       <div style={{
-        fontFamily: "'Press Start 2P', monospace", fontSize: 42,
-        color: '#ef4444', letterSpacing: '0.08em',
-        textShadow: '0 0 30px #ef4444, 0 0 60px #ef444488',
+        position: 'absolute', inset: 0, opacity: 0.12, pointerEvents: 'none',
+        backgroundImage: `repeating-linear-gradient(135deg, #fff 0 6px, transparent 6px 80px)`,
+      }} />
+
+      <div style={{
+        position: 'absolute', top: '11%', left: '50%',
+        transform: 'translateX(-50%) rotate(-2deg)', textAlign: 'center',
       }}>
-        ROBOT DESTROYED
+        <div style={{
+          font: `400 140px ${PR.font.display}`, color: PR.color.sun,
+          textShadow: `6px 9px 0 ${PR.color.ink}`, letterSpacing: 6, lineHeight: 1,
+        }}>GAME OVER</div>
+        <div style={{
+          font: `700 18px ${PR.font.sans}`, letterSpacing: 8,
+          marginTop: 12, opacity: 0.9,
+        }}>THE RIM HAS FALLEN</div>
       </div>
-      <button
-        onClick={onRestart}
-        style={{
-          padding: '16px 36px', borderRadius: 10,
-          border: '2px solid #22d3ee', background: '#22d3ee',
-          color: '#0a0b14', fontSize: 18,
-          fontFamily: "'Press Start 2P', monospace",
-          letterSpacing: '0.08em', cursor: 'pointer',
-          boxShadow: '0 0 24px #22d3ee88',
-        }}
-      >
-        RESTART
-      </button>
+
+      <div style={{
+        position: 'absolute', left: '50%', top: '44%',
+        transform: 'translate(-50%, 0) rotate(-12deg)',
+        animation: 'pr-shake 0.4s ease-in-out infinite',
+      }}>
+        <Robot size={180} glow={PR.color.cherry} />
+      </div>
+
+      <div style={{
+        position: 'absolute', bottom: '18%', left: '8%',
+        animation: 'pr-jiggle 1.6s ease-in-out infinite',
+        transformOrigin: 'bottom center',
+      }}>
+        <EnemySprite kind="slime" size={110} />
+      </div>
+      <div style={{
+        position: 'absolute', bottom: '18%', right: '8%',
+        animation: 'pr-hop 1.4s ease-in-out infinite',
+        transformOrigin: 'bottom center',
+      }}>
+        <EnemySprite kind="bunny" size={120} />
+      </div>
+
+      <div style={{
+        position: 'absolute', bottom: '6%', left: '50%',
+        transform: 'translateX(-50%)', textAlign: 'center',
+        font: `700 12px ${PR.font.sans}`, letterSpacing: 3,
+        color: PR.color.paper, opacity: 0.85,
+      }}>
+        PRESS <span style={{ color: PR.color.sun }}>RESTART</span> ON ANY PHONE
+      </div>
     </div>
   );
 }
