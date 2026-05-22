@@ -227,10 +227,16 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
         return cb({ ok: false, error: 'no_such_room' });
       }
 
+      // If this socket is currently bound to a player in a DIFFERENT room,
+      // clean that record up so the user doesn't leave a ghost behind.
+      const sd = socket.data as { roomCode?: string; playerId?: string } | undefined;
+      if (sd?.roomCode && sd.roomCode !== roomCode && sd.playerId) {
+        removePhoneFromRoom(socket, mgr);
+      }
+
       // Idempotency for StrictMode double-fire and accidental re-joins:
       // if this socket is already bound to a player in this room, return
       // that player instead of creating a duplicate "ghost" record.
-      const sd = socket.data as { roomCode?: string; playerId?: string } | undefined;
       if (sd?.roomCode === roomCode && sd.playerId) {
         const existing = room.players.get(sd.playerId);
         if (existing) {
