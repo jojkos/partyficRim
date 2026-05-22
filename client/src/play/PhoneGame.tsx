@@ -6,6 +6,7 @@ import { Joystick } from './Joystick.js';
 import { useLandscape } from './useLandscape.js';
 import { Robot } from '../display/Sprites.js';
 import { PR } from '../ui/theme.js';
+import { audio } from '../audio/engine.js';
 
 const ROLE_NUMBER: Record<Role, number> = { defense: 1, repair: 2, weapons: 3 };
 const QUADRANT_ARROW = ['↖', '↗', '↙', '↘'] as const;
@@ -14,8 +15,11 @@ const ATTACKS: AttackKind[] = ['melee', 'rotary', 'laser', 'bomb'];
 
 interface Props { socket: AppSocket; role: Role; roomCode: string; onLeave: () => void; }
 
+const FIRE_FLASH_MS = 220;
+
 export function PhoneGame({ socket, role, onLeave }: Props) {
   const [snap, setSnap] = useState<PhoneSnapshot | null>(null);
+  const [firedQuadrant, setFiredQuadrant] = useState<number | null>(null);
   const { isLandscape, enterFullscreenLandscape, canFullscreen, isStandalone } = useLandscape();
 
   useEffect(() => {
@@ -27,8 +31,12 @@ export function PhoneGame({ socket, role, onLeave }: Props) {
   const onMove = useCallback((dx: number, dy: number) => {
     socket.emit('phone:input', { dx, dy });
   }, [socket]);
-  const onAction = useCallback(() => socket.emit('phone:button'), [socket]);
+  const onAction = useCallback(() => {
+    audio.play('ui.tap');
+    socket.emit('phone:button');
+  }, [socket]);
   const onSelect = useCallback((index: number) => {
+    audio.play('ui.tap');
     const offered = snap?.offeredCores[index];
     const selected = role === 'weapons'
       ? Boolean(offered && snap?.weaponSelectedCores.includes(offered))
@@ -36,10 +44,24 @@ export function PhoneGame({ socket, role, onLeave }: Props) {
     socket.emit('phone:select', { index, on: !selected });
   }, [role, socket, snap]);
   const onQuadrant = useCallback((index: number) => {
-    if (role === 'repair') socket.emit('phone:repair', { quadrant: index });
-    else socket.emit('phone:quadrant', { index });
+    if (role === 'repair') {
+      audio.play('repair.tick');
+      socket.emit('phone:repair', { quadrant: index });
+    } else {
+      audio.play('ui.tap');
+      socket.emit('phone:quadrant', { index });
+    }
+    // weapons direction is one-shot on the server — flash the tapped button
+    // briefly so the user still gets visual feedback of the press.
+    if (role === 'weapons') {
+      setFiredQuadrant(index);
+      window.setTimeout(() => {
+        setFiredQuadrant((cur) => (cur === index ? null : cur));
+      }, FIRE_FLASH_MS);
+    }
   }, [role, socket]);
   const onSelectAttack = useCallback((kind: AttackKind) => {
+    audio.play('ui.tap');
     socket.emit('phone:select_attack', { kind: snap?.selectedAttackKind === kind ? null : kind });
   }, [socket, snap?.selectedAttackKind]);
   const onRestart = useCallback(() => {
@@ -154,8 +176,8 @@ export function PhoneGame({ socket, role, onLeave }: Props) {
     }}>
       {/* TOP BAR */}
       <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        gap: 12, paddingInline: 14,
+        display: 'flex', alignItems: 'center',
+        gap: 10, paddingInline: 10,
         background: PR.color.bg, borderBottom: `2px solid ${color}`,
       }}>
         <div style={{
@@ -165,22 +187,33 @@ export function PhoneGame({ socket, role, onLeave }: Props) {
         <div style={{
           font: `700 12px ${PR.font.sans}`, letterSpacing: 2.5, color,
         }}>P{ROLE_NUMBER[role]} · {ROLE_LABEL[role]}</div>
-        <div style={{ font: `500 10px ${PR.font.mono}`, opacity: 0.5, marginLeft: 10 }}>
+        <div style={{ font: `500 10px ${PR.font.mono}`, opacity: 0.5, marginLeft: 6 }}>
           {onFoot ? 'ON FOOT' : 'IN ROBOT'}
         </div>
+        <div style={{ flex: 1 }} />
+        {canFullscreen && !isStandalone && (
+          <button
+            onClick={enterFullscreenLandscape}
+            title="Enter fullscreen"
+            style={{
+              font: `700 10px ${PR.font.sans}`, letterSpacing: 1,
+              color: PR.color.paper, opacity: 0.85,
+              border: `1px solid ${PR.color.paper}33`, borderRadius: 6,
+              padding: '4px 8px',
+              background: 'rgba(0,0,0,0.45)', cursor: 'pointer',
+              lineHeight: 1,
+            }}>⛶</button>
+        )}
+        <button
+          onClick={onLeave}
+          style={{
+            font: `700 10px ${PR.font.sans}`, letterSpacing: 1,
+            color: PR.color.paper, opacity: 0.85,
+            border: `1px solid ${PR.color.paper}33`, borderRadius: 6,
+            padding: '4px 10px',
+            background: 'rgba(0,0,0,0.45)', cursor: 'pointer',
+          }}>Leave</button>
       </div>
-
-      {/* corner: leave */}
-      <button
-        onClick={onLeave}
-        style={{
-          position: 'absolute', top: 36, right: 8, zIndex: 2,
-          font: `700 10px ${PR.font.sans}`, letterSpacing: 1,
-          color: PR.color.paper, opacity: 0.85,
-          border: `1px solid ${PR.color.paper}33`, borderRadius: 6,
-          padding: '5px 10px',
-          background: 'rgba(0,0,0,0.45)', cursor: 'pointer',
-        }}>Leave</button>
 
       {/* 3-COLUMN GRID */}
       <div style={{
@@ -207,7 +240,7 @@ export function PhoneGame({ socket, role, onLeave }: Props) {
               </div>
             </>
           ) : (
-            <JoystickWrap color={color} hint={lockHint} disabled={controlsDisabled}>
+            <JoystickWrap color={color} hint={lockHint} disabled={gameover}>
               <Joystick lockAxis={lockAxis} onMove={onMove} color={color} />
             </JoystickWrap>
           )}
@@ -266,7 +299,7 @@ export function PhoneGame({ socket, role, onLeave }: Props) {
           }}>{isRepair ? 'TAP TO REPAIR' : 'TAP TO TARGET'}</div>
           {[0, 1, 2, 3].map((i) => {
             const hp = snap?.quadrantHp[i as Quadrant] ?? 100;
-            const selected = snap?.quadrant === i;
+            const selected = isWeapons ? firedQuadrant === i : snap?.quadrant === i;
             const low = hp < 30;
             const arrow = QUADRANT_ARROW[i];
             const label = QUADRANT_LABEL[i];
