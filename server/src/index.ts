@@ -22,7 +22,7 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
 const rooms = new RoomManager();
 registerHandlers(io, rooms);
 
-const loop = new GameLoop(30, (dt) => {
+const loop = new GameLoop(60, (dt) => {
   for (const room of rooms.iterRooms()) {
     tickRoom(room, dt);
     io.to(`room:${room.code}:display`).emit('display:state', buildDisplaySnapshot(room));
