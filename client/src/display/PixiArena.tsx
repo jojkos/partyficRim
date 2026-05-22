@@ -89,6 +89,33 @@ function quadrantAngles(q: Quadrant): { start: number; end: number } {
   return { start: Math.PI, end: Math.PI * 1.5 };
 }
 
+function drawArc(
+  g: PIXI.Graphics,
+  origin: { x: number; y: number },
+  quadrant: Quadrant,
+  radius: number,
+  color: number,
+  alpha: number,
+  thickness: number,
+  arcFraction: number,
+  tx: (v: number) => number,
+  ty: (v: number) => number,
+  ts: (v: number) => number
+) {
+  const { start, end } = quadrantAngles(quadrant);
+  const center = (start + end) / 2;
+  const span = (end - start) * arcFraction;
+  const a0 = center - span / 2;
+  const a1 = center + span / 2;
+  const steps = 16;
+  g.lineStyle(ts(thickness), color, alpha);
+  g.moveTo(tx(origin.x + Math.cos(a0) * radius), ty(origin.y + Math.sin(a0) * radius));
+  for (let i = 1; i <= steps; i++) {
+    const a = a0 + (a1 - a0) * (i / steps);
+    g.lineTo(tx(origin.x + Math.cos(a) * radius), ty(origin.y + Math.sin(a) * radius));
+  }
+}
+
 function drawSector(
   g: PIXI.Graphics,
   origin: { x: number; y: number },
@@ -161,18 +188,19 @@ function drawAttack(
     g.beginFill(colorAt(0), 0.16 * alpha).drawCircle(ox, oy, ts(BOMB_RADIUS)).endFill();
     return;
   }
-  drawSector(g, origin, quadrant, MELEE_RADIUS, colorAt(0), alpha, tx, ty);
-  for (let i = 0; i < 4; i++) {
-    const spread = (i - 1.5) * 11;
-    g.lineStyle(ts(5), colorAt(i), alpha)
-      .moveTo(tx(origin.x + dir.x * 20 + -dir.y * spread), ty(origin.y + dir.y * 20 + dir.x * spread))
-      .quadraticCurveTo(
-        tx(origin.x + dir.x * 44 + -dir.y * spread * 1.8),
-        ty(origin.y + dir.y * 44 + dir.x * spread * 1.8),
-        tx(origin.x + dir.x * 72 + -dir.y * spread * 0.4),
-        ty(origin.y + dir.y * 72 + dir.x * spread * 0.4)
-      );
-  }
-  g.lineStyle(ts(2), 0xffffff, alpha).drawCircle(tx(origin.x + dir.x * 72), ty(origin.y + dir.y * 72), ts(11));
+  // Melee: a swing trail of concentric arcs, all bounded by MELEE_RADIUS so
+  // the visual matches the actual hit range.
+  drawSector(g, origin, quadrant, MELEE_RADIUS, colorAt(0), alpha * 0.6, tx, ty);
+  const trails: Array<{ r: number; w: number; a: number; frac: number }> = [
+    { r: 0.55, w: 2, a: 0.35, frac: 0.55 },
+    { r: 0.72, w: 3, a: 0.55, frac: 0.70 },
+    { r: 0.88, w: 4, a: 0.80, frac: 0.84 },
+    { r: 1.00, w: 5, a: 1.00, frac: 0.95 },
+  ];
+  trails.forEach((t, i) => {
+    drawArc(g, origin, quadrant, MELEE_RADIUS * t.r, colorAt(i), alpha * t.a, t.w, t.frac, tx, ty, ts);
+  });
+  // bright leading edge gleam
+  drawArc(g, origin, quadrant, MELEE_RADIUS * 1.0, 0xffffff, alpha * 0.7, 1.5, 0.45, tx, ty, ts);
 }
 

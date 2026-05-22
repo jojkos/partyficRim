@@ -5,6 +5,9 @@ import { PhoneLobby } from './PhoneLobby.js';
 import { PhoneGame } from './PhoneGame.js';
 import { Robot } from '../display/Sprites.js';
 import { PR, Wordmark, bevelButtonStyle } from '../ui/theme.js';
+import { usePhoneAudio } from '../audio/usePhoneAudio.js';
+import { MuteButton } from '../audio/MuteButton.js';
+import { audio } from '../audio/engine.js';
 
 const SESSION_KEY = 'partyficrim.session';
 
@@ -130,6 +133,13 @@ export function PlayPage() {
     return () => { socket.off('room:ended', onEnded); };
   }, [socket]);
 
+  usePhoneAudio(snap);
+
+  // Audible feedback for connection errors (room_full etc.).
+  useEffect(() => {
+    if (error) audio.play('ui.error');
+  }, [error]);
+
   if (!roomCode || roomCode.length !== 4 || error) {
     return (
       <div style={{
@@ -199,6 +209,7 @@ export function PlayPage() {
             />
             <button
               type="submit"
+              onClick={() => audio.play('ui.tap')}
               className="pr-bevel-btn"
               style={{
                 ...bevelButtonStyle({ bg: PR.color.flame, size: 'md' }),
@@ -229,6 +240,7 @@ export function PlayPage() {
             }}>YOUR PILOT AWAITS</div>
           </div>
         </form>
+        <MuteButton style={{ position: 'absolute', top: 10, right: 12 }} />
       </div>
     );
   }

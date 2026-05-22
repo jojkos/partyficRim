@@ -3,6 +3,8 @@ import type { PhoneSnapshot, Role } from '@partyficrim/shared';
 import type { AppSocket } from '../socket.js';
 import { useLandscape } from './useLandscape.js';
 import { PR } from '../ui/theme.js';
+import { audio } from '../audio/engine.js';
+import { MuteButton } from '../audio/MuteButton.js';
 
 const ROLES: Role[] = ['defense', 'weapons', 'repair'];
 
@@ -27,17 +29,26 @@ export function PhoneLobby({ socket, role, roomCode, snap, onLeave }: Props) {
   const canStart = playerCount >= 3 && allClaimed && snap?.phase === 'lobby';
   const showCountdown = snap?.phase === 'countdown';
 
-  const onStart = () => socket.emit('client:request_start');
+  const onStart = () => {
+    audio.play('ui.start_press');
+    socket.emit('client:request_start');
+  };
   const onClaim = (next: Role) => {
     if (inFlight) return; // ignore rapid double-tap until server confirms
+    audio.play('ui.tap');
     const desired = role === next ? null : next;
     setInFlight(desired === null ? 'release' : desired);
-    socket.emit('phone:claim_role', { role: desired }, () => {
+    socket.emit('phone:claim_role', { role: desired }, (res) => {
       // Clear regardless of ok/!ok — snapshot is authoritative.
       // If !ok, snap.role stays the same and inFlight clears, so UI rolls
       // back to truth (no flicker because we never lied about "mine").
+      if (!res.ok) audio.play('ui.error');
       setInFlight(null);
     });
+  };
+  const handleLeave = () => {
+    audio.play('ui.leave');
+    onLeave();
   };
 
   // Safety: if a snap arrives and our snapshot already matches our intent,
@@ -90,12 +101,15 @@ export function PhoneLobby({ socket, role, roomCode, snap, onLeave }: Props) {
         }}>
           ROOM · {roomCode}
         </div>
-        <button onClick={onLeave} style={{
-          font: `700 11px ${PR.font.sans}`, letterSpacing: 1,
-          color: PR.color.paper, opacity: 0.7,
-          border: `1px solid ${PR.color.paper}33`, borderRadius: 6,
-          padding: '4px 10px', background: 'transparent', cursor: 'pointer',
-        }}>Leave</button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <MuteButton size={30} />
+          <button onClick={handleLeave} style={{
+            font: `700 11px ${PR.font.sans}`, letterSpacing: 1,
+            color: PR.color.paper, opacity: 0.7,
+            border: `1px solid ${PR.color.paper}33`, borderRadius: 6,
+            padding: '4px 10px', background: 'transparent', cursor: 'pointer',
+          }}>Leave</button>
+        </div>
       </div>
 
       {/* Heading */}

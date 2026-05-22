@@ -7,6 +7,8 @@ import { HudOverlay } from './HudOverlay.js';
 import { HudBar } from './HudBar.js';
 import { SvgArena } from './SvgArena.js';
 import { EventFeed } from './EventFeed.js';
+import { useGameAudio } from '../audio/useGameAudio.js';
+import { MuteButton } from '../audio/MuteButton.js';
 
 const STORAGE_KEY = 'partyficrim.displayRoomCode';
 
@@ -87,6 +89,8 @@ export function DisplayPage() {
     });
   };
 
+  useGameAudio(snap);
+
   const events = snap?.eventFeed ?? [];
 
   if (!snap || snap.phase === 'lobby') {
@@ -94,6 +98,7 @@ export function DisplayPage() {
       <>
         <DisplayLobby socket={socket} roomCode={roomCode} snap={snap} onResetRoom={onResetRoom} />
         <EventFeed events={events} />
+        <MuteButton style={{ position: 'fixed', top: 16, right: 16, zIndex: 50 }} />
       </>
     );
   }
@@ -114,6 +119,7 @@ export function DisplayPage() {
         <PixiArena snap={snap} />
         <EventFeed events={events} />
         <HudOverlay onResetRoom={onResetRoom} phase={snap.phase} countdownSec={countdownSec} />
+        <MuteButton style={{ position: 'absolute', top: 12, right: 12, zIndex: 50 }} />
       </div>
     </div>
   );

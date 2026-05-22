@@ -447,14 +447,16 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
         return;
       }
       if (p.role === 'weapons') {
-        p.quadrant = q;
-        room.attackQuadrant = q;
         if (room.phase === 'playing' && p.selectedAttackKind) {
           const available = new Set<CoreType>(offeredCores(room));
           const selected = p.weaponSelectedCores.filter((type) => available.has(type));
           fireAttack(room, p.selectedAttackKind, q, selected);
           pushFeed(room, { ts: Date.now(), role: p.role, kind: 'fire', detail: `${p.selectedAttackKind.toUpperCase()} ${['NW', 'NE', 'SW', 'SE'][index]}` });
         }
+        // weapon direction is a one-shot, not a toggle — clear so the UI
+        // doesn't keep showing the last-tapped direction as active.
+        p.quadrant = null;
+        room.attackQuadrant = null;
         return;
       }
     });

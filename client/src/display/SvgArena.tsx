@@ -106,13 +106,11 @@ function SandstoneTiles() {
 /* ── Quadrant indicator ─────────────────────────────────────── */
 
 /* Game quadrants: 0=NW, 1=NE, 2=SW, 3=SE — map to diagonal arc angles */
-const Q_CONFIG: Record<Quadrant, { center: number; color: string; label: string }> = {
-  0: { center: 225, color: '#22d3ee', label: 'NW' },
-  1: { center: 315, color: '#f472b6', label: 'NE' },
-  2: { center: 135, color: '#fbbf24', label: 'SW' },
-  3: { center:  45, color: '#a3e635', label: 'SE' },
-};
+const Q_CENTER: Record<Quadrant, number> = { 0: 225, 1: 315, 2: 135, 3: 45 };
 const HALF_ARC = 40; // degrees per side
+const ARC_NEUTRAL = 'rgba(255,255,255,0.18)';
+const ARC_ATTACK = '#ffe066';
+const ARC_SHIELD = '#77ddff';
 
 interface QuadrantIndicatorProps {
   activeQuadrant: Quadrant | null;
@@ -128,55 +126,33 @@ function QuadrantIndicator({ activeQuadrant, shieldQuadrant }: QuadrantIndicator
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}
       style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', pointerEvents: 'none', zIndex: 2 }}>
-      {/* rotating dashed ring */}
-      <circle cx={c} cy={c} r={r} fill="none" stroke="rgba(120,80,30,0.55)" strokeWidth="2.5" strokeDasharray="6 6">
-        <animate attributeName="stroke-dashoffset" from="0" to="-24" dur="3s" repeatCount="indefinite" />
-      </circle>
-      <circle cx={c} cy={c} r={r * 0.55} fill="none" stroke="rgba(120,80,30,0.35)" strokeWidth="1.5" strokeDasharray="3 4" />
-      {/* cross lines */}
-      <line x1={c - r - 18} y1={c} x2={c + r + 18} y2={c} stroke="rgba(120,80,30,0.4)" strokeWidth="1.5" strokeDasharray="2 4" />
-      <line x1={c} y1={c - r - 18} x2={c} y2={c + r + 18} stroke="rgba(120,80,30,0.4)" strokeWidth="1.5" strokeDasharray="2 4" />
-      {/* quadrant arcs */}
+      {/* subtle outer range ring */}
+      <circle cx={c} cy={c} r={r} fill="none" stroke="rgba(255,255,255,0.10)" strokeWidth="1.5" strokeDasharray="6 6" />
+      {/* quadrant arcs — only highlight when active or shielded */}
       {quads.map((q) => {
-        const { center, color } = Q_CONFIG[q];
-        const a0 = (center - HALF_ARC) * Math.PI / 180;
-        const a1 = (center + HALF_ARC) * Math.PI / 180;
+        const a0 = (Q_CENTER[q] - HALF_ARC) * Math.PI / 180;
+        const a1 = (Q_CENTER[q] + HALF_ARC) * Math.PI / 180;
         const x0 = c + r * Math.cos(a0), y0 = c + r * Math.sin(a0);
         const x1 = c + r * Math.cos(a1), y1 = c + r * Math.sin(a1);
         const isActive = activeQuadrant === q;
         const isShield = shieldQuadrant === q;
-        const strokeColor = isShield ? '#77ddff' : color;
+        const strokeColor = isShield ? ARC_SHIELD : isActive ? ARC_ATTACK : ARC_NEUTRAL;
+        const highlighted = isActive || isShield;
         return (
           <path key={q}
             d={`M ${x0} ${y0} A ${r} ${r} 0 0 1 ${x1} ${y1}`}
             fill="none"
             stroke={strokeColor}
-            strokeWidth={isActive || isShield ? 8 : 3}
+            strokeWidth={highlighted ? 8 : 2}
             strokeLinecap="round"
-            opacity={isActive || isShield ? 1 : 0.45}
+            opacity={highlighted ? 1 : 0.6}
             style={{
-              filter: isActive || isShield ? `drop-shadow(0 0 10px ${strokeColor})` : 'none',
+              filter: highlighted ? `drop-shadow(0 0 10px ${strokeColor})` : 'none',
               transition: 'all 0.3s',
             }}
           />
         );
       })}
-      {/* labels */}
-      {quads.map((q) => {
-        const { center, color, label } = Q_CONFIG[q];
-        const a = center * Math.PI / 180;
-        const x = c + (r + 28) * Math.cos(a);
-        const y = c + (r + 28) * Math.sin(a) + 4;
-        const isActive = activeQuadrant === q;
-        return (
-          <text key={q} x={x} y={y} fill={isActive ? color : 'rgba(90,60,20,0.7)'} fontSize="11"
-            fontFamily="'Press Start 2P', monospace" textAnchor="middle"
-            style={{ filter: isActive ? `drop-shadow(0 0 4px ${color})` : 'none' }}>
-            {label}
-          </text>
-        );
-      })}
-      <circle cx={c} cy={c} r="2.5" fill="rgba(90,60,20,0.8)" />
     </svg>
   );
 }
@@ -265,26 +241,6 @@ function PlayerMarker({ pos, arena, role }: { pos: Vec2; arena: Rect; role: stri
   );
 }
 
-function ArenaRings() {
-  return (
-    <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', pointerEvents: 'none', zIndex: 1 }}>
-      {[
-        { w: '82%', h: '70%' },
-        { w: '55%', h: '48%' },
-        { w: '32%', h: '28%', dotted: true },
-      ].map(({ w, h, dotted }, i) => (
-        <div key={i} style={{
-          position: 'absolute',
-          width: w, height: h,
-          border: `2px ${dotted ? 'dotted' : 'dashed'} rgba(168, 122, 60, 0.55)`,
-          borderRadius: '50%',
-          opacity: dotted ? 0.5 : 1,
-        }} />
-      ))}
-    </div>
-  );
-}
-
 /* ── Global animation keyframes ─────────────────────────────── */
 
 const STYLE = `
@@ -304,8 +260,6 @@ export function SvgArena({ snap }: Props) {
       <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
         {/* sandstone floor */}
         <SandstoneTiles />
-        {/* decorative rings */}
-        <ArenaRings />
         {/* vignette */}
         <div style={{
           position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 5,
