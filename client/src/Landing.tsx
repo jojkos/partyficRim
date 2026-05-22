@@ -53,13 +53,6 @@ export function Landing() {
         <EnemySprite kind="bunny" size={100} />
       </div>
 
-      {/* footer hint */}
-      <div style={{
-        position: 'absolute', bottom: 36, left: 0, right: 0, textAlign: 'center',
-        font: `500 14px ${PR.font.sans}`, letterSpacing: 4, color: PR.color.paper, opacity: 0.55,
-      }}>
-        ONE BIG SCREEN · TWO PHONES · ENDLESS MOBS
-      </div>
     </div>
   );
 }
