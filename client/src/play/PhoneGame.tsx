@@ -260,7 +260,7 @@ export function PhoneGame({ socket, role, onLeave }: Props) {
               return (
                 <button
                   key={kind}
-                  onClick={() => onSelectAttack(kind)}
+                  onPointerDown={(e) => { if (!controlsDisabled) { e.preventDefault(); onSelectAttack(kind); } }}
                   disabled={controlsDisabled}
                   className={!controlsDisabled ? 'pr-bevel-btn' : undefined}
                   style={{
@@ -310,7 +310,7 @@ export function PhoneGame({ socket, role, onLeave }: Props) {
             return (
               <button
                 key={i}
-                onClick={() => onQuadrant(i)}
+                onPointerDown={(e) => { if (!controlsDisabled) { e.preventDefault(); onQuadrant(i); } }}
                 disabled={controlsDisabled}
                 style={{
                   position: 'relative', overflow: 'hidden',
@@ -401,7 +401,7 @@ function ActionBtn({
 }) {
   return (
     <button
-      onClick={onClick}
+      onPointerDown={(e) => { if (!disabled) { e.preventDefault(); onClick(); } }}
       disabled={disabled}
       className={!disabled ? 'pr-bevel-btn' : undefined}
       style={actionStyle(color, disabled)}>
@@ -450,7 +450,7 @@ function CoreGrid({
         return (
           <button
             key={i}
-            onClick={() => onSelect(i)}
+            onPointerDown={(e) => { if (!isDisabled) { e.preventDefault(); onSelect(i); } }}
             disabled={isDisabled}
             className={!isDisabled ? 'pr-bevel-btn' : undefined}
             style={{

@@ -8,9 +8,10 @@
     "client"
   ],
   "scripts": {
+    "dev:shared": "npm --workspace=shared run dev",
     "dev:server": "npm --workspace=server run dev",
     "dev:client": "npm --workspace=client run dev",
-    "dev": "npm-run-all --parallel dev:server dev:client",
+    "dev": "npm --workspace=shared run build && npm-run-all --parallel dev:shared dev:server dev:client",
     "test": "npm --workspaces --if-present run test",
     "test:e2e": "npx playwright test",
     "build": "npm --workspaces --if-present run build"

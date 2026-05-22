@@ -1,11 +1,16 @@
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { ClientToServerEvents, ServerToClientEvents } from '@partyficrim/shared';
 import { RoomManager } from './game/rooms.js';
 import { registerHandlers, socketByPlayerId } from './net/handlers.js';
 import { GameLoop } from './game/loop.js';
 import { tickRoom, buildDisplaySnapshot, buildPhoneSnapshot } from './game/tick.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const clientDist = path.resolve(__dirname, '../../client/dist');
 
 const app = express();
 const httpServer = createServer(app);
@@ -29,6 +34,9 @@ const loop = new GameLoop(30, (dt) => {
 loop.start();
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
+
+app.use(express.static(clientDist));
+app.get('*', (_req, res) => res.sendFile(path.join(clientDist, 'index.html')));
 
 const PORT = Number(process.env.PORT ?? 3000);
 httpServer.listen(PORT, () => {
