@@ -523,7 +523,8 @@ describe('role controls', () => {
     weapons.emit('phone:quadrant', { index: 1 });
     await sleep(50);
 
-    expect(room.attackQuadrant).toBe(1);
+    // Weapons direction is one-shot: server clears attackQuadrant right after firing.
+    expect(room.attackQuadrant).toBe(null);
     expect(room.attacks.at(-1)?.kind).toBe('rotary');
     expect(room.attacks.at(-1)?.quadrant).toBe(1);
   });
