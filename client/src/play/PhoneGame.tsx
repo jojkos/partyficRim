@@ -44,13 +44,11 @@ export function PhoneGame({ socket, role, onLeave }: Props) {
     socket.emit('phone:select', { index, on: !selected });
   }, [role, socket, snap]);
   const onQuadrant = useCallback((index: number) => {
-    if (role === 'repair') {
-      audio.play('repair.tick');
-      socket.emit('phone:repair', { quadrant: index });
-    } else {
-      audio.play('ui.tap');
-      socket.emit('phone:quadrant', { index });
-    }
+    // Phone only plays its own UI reaction. The actual repair/attack SFX is
+    // emitted by the display from the game snapshot.
+    audio.play('ui.tap');
+    if (role === 'repair') socket.emit('phone:repair', { quadrant: index });
+    else socket.emit('phone:quadrant', { index });
     // weapons direction is one-shot on the server — flash the tapped button
     // briefly so the user still gets visual feedback of the press.
     if (role === 'weapons') {

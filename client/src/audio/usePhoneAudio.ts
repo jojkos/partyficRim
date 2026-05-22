@@ -1,43 +1,25 @@
-// Phone-side audio reactor. Sparing on its own — the display is the source of
-// truth for music + most SFX. The phone only plays:
-//   - menu music while in the lobby (so the room-code screen has presence)
-//   - role-claim confirmation when our snap.role flips to a non-null value
-//   - nothing during gameplay; the display covers it
+// Phone-side audio reactor.
 //
-// Local UI sounds (tap, leave, error) are fired imperatively by callers,
-// e.g. `audio.play('ui.tap')` from a button's onClick.
+// Policy: the phone never plays music or game-event SFX — those live on the
+// display (host screen). The phone only reacts to ITS OWN actions:
+//   - role-claim confirmation when our own snap.role flips to a new role
+//   - UI taps / errors / leave are fired imperatively from button handlers
+//     via `audio.play('ui.tap')` etc.
+//
+// This hook exists to translate one snapshot transition (own role change)
+// into a sound. Everything else is direct.
 
 import { useEffect, useRef } from 'react';
 import type { PhoneSnapshot } from '@partyficrim/shared';
 import { audio } from './engine.js';
 
 export function usePhoneAudio(snap: PhoneSnapshot | null | undefined): void {
-  const prevPhase = useRef<string | null>(null);
   const prevRole = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!snap) {
-      // Pre-join "enter room code" screen: play menu music too.
-      audio.music('menu');
-      return;
-    }
-
-    if (prevPhase.current !== snap.phase) {
-      switch (snap.phase) {
-        case 'lobby':
-        case 'countdown':
-          audio.music('menu');
-          break;
-        case 'playing':
-        case 'gameover':
-        case 'paused':
-          audio.music(null);
-          break;
-      }
-      prevPhase.current = snap.phase;
-    }
-
+    if (!snap) return;
     if (prevRole.current !== snap.role) {
+      // Only ding when transitioning TO a claimed role (not on release).
       if (snap.role && prevRole.current !== snap.role) audio.play('ui.role_claim');
       prevRole.current = snap.role;
     }

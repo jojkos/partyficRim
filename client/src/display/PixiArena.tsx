@@ -1,23 +1,25 @@
 import { useEffect, useRef } from 'react';
 import * as PIXI from 'pixi.js';
-import { type DisplaySnapshot, type Quadrant } from '@partyficrim/shared';
+import { type DisplaySnapshot, type Quadrant, type Vec2 } from '@partyficrim/shared';
+import type { RobotPosRef } from './useSmoothedRobot.js';
 
 const WEAPON_RADIUS_100 = 160;
 const MELEE_RADIUS = WEAPON_RADIUS_100 * 0.25;
 const ROTARY_RADIUS = WEAPON_RADIUS_100 * 0.75;
 const BOMB_RADIUS = WEAPON_RADIUS_100 * 0.5;
 
-interface Props { snap: DisplaySnapshot; }
+interface Props { snap: DisplaySnapshot; smoothedRobotRef: RobotPosRef; }
 
 interface Layers {
   attacks: PIXI.Graphics;
 }
 
-export function PixiArena({ snap }: Props) {
+export function PixiArena({ snap, smoothedRobotRef }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const appRef = useRef<PIXI.Application | null>(null);
   const layersRef = useRef<Layers | null>(null);
   const snapRef = useRef(snap);
+  const robotRef = smoothedRobotRef;
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -33,10 +35,10 @@ export function PixiArena({ snap }: Props) {
     app.stage.addChild(attacks);
     layersRef.current = { attacks };
 
-    app.ticker.add(() => render(snapRef.current, layersRef.current!, app));
+    app.ticker.add(() => render(snapRef.current, robotRef.current, layersRef.current!, app));
 
     return () => { app.destroy(true, { children: true }); appRef.current = null; };
-  }, []);
+  }, [robotRef]);
 
   useEffect(() => { snapRef.current = snap; }, [snap]);
 
@@ -45,7 +47,7 @@ export function PixiArena({ snap }: Props) {
   );
 }
 
-function render(snap: DisplaySnapshot, layers: Layers, app: PIXI.Application) {
+function render(snap: DisplaySnapshot, smoothedRobot: Vec2, layers: Layers, app: PIXI.Application) {
   const sw = app.screen.width;
   const sh = app.screen.height;
   // Match SvgArena's stretch mapping so attack visuals align with the robot sprite.
@@ -67,7 +69,7 @@ function render(snap: DisplaySnapshot, layers: Layers, app: PIXI.Application) {
   for (const attack of snap.attacks) {
     const alpha = Math.max(0.15, attack.ttlMsRemaining / 500);
     const colors = attack.colors.length > 0 ? attack.colors.map(parseColor) : [0xeeeeee];
-    drawAttack(layers.attacks, snap, attack.kind, attack.quadrant, colors, alpha, tx, ty, ts, attack.pos);
+    drawAttack(layers.attacks, snap, smoothedRobot, attack.kind, attack.quadrant, colors, alpha, tx, ty, ts, attack.pos);
   }
 }
 
@@ -149,6 +151,7 @@ function drawSector(
 function drawAttack(
   g: PIXI.Graphics,
   snap: DisplaySnapshot,
+  smoothedRobot: Vec2,
   kind: string,
   quadrant: Quadrant,
   colors: number[],
@@ -158,7 +161,10 @@ function drawAttack(
   ts: (v: number) => number,
   pos?: { x: number; y: number }
 ) {
-  const origin = pos ?? snap.robot;
+  // For attacks fired without a stored pos (rotary/laser/melee), anchor to the
+  // SAME smoothed position the robot sprite uses, so they stay visually
+  // attached to the robot.
+  const origin = pos ?? smoothedRobot;
   const dir = quadrantVector(quadrant);
   const ox = tx(origin.x);
   const oy = ty(origin.y);

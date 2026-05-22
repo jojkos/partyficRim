@@ -1,6 +1,8 @@
+import { useEffect, useRef } from 'react';
 import type { CoreState, DisplaySnapshot, EnemyState, Quadrant, Rect, Vec2 } from '@partyficrim/shared';
 import { CORE_COLORS } from '@partyficrim/shared';
 import { EnemySprite, Obstacle, PlayerAvatar, Robot, enemyKindFromId } from './Sprites.js';
+import type { RobotPosRef } from './useSmoothedRobot.js';
 
 /* ── Coordinate helpers ─────────────────────────────────────── */
 
@@ -208,7 +210,7 @@ function CoreDot({ core, arena }: { core: CoreState; arena: Rect }) {
 }
 
 interface RobotEntityProps {
-  pos: Vec2;
+  posRef: RobotPosRef;
   arena: Rect;
   attackQuadrant: Quadrant | null;
   shieldQuadrant: Quadrant | null;
@@ -216,9 +218,29 @@ interface RobotEntityProps {
   glow?: string;
 }
 
-function RobotEntity({ pos, arena, attackQuadrant, shieldQuadrant, bodyColor = '#7fb86b', glow = '#22d3ee' }: RobotEntityProps) {
+function RobotEntity({ posRef, arena, attackQuadrant, shieldQuadrant, bodyColor = '#7fb86b', glow = '#22d3ee' }: RobotEntityProps) {
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  // Direct DOM positioning each frame from the shared smoothed-position ref.
+  // This bypasses React reconciliation so motion stays smooth at the display's
+  // native refresh rate without re-rendering the whole arena tree.
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      const el = wrapRef.current;
+      if (el) {
+        const p = posRef.current;
+        el.style.left = `calc(${xPct(p.x, arena)}% - 120px)`;
+        el.style.top  = `calc(${yPct(p.y, arena)}% - 120px)`;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [arena, posRef]);
+
   return (
-    <div style={{ ...arenaStyle(pos, arena, 120, 120), width: 240, height: 240, zIndex: 4 }}>
+    <div ref={wrapRef} style={{ position: 'absolute', width: 240, height: 240, zIndex: 4 }}>
       <QuadrantIndicator activeQuadrant={attackQuadrant} shieldQuadrant={shieldQuadrant} />
       <div style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', animation: 'pf-bob 2s ease-in-out infinite' }}>
         <Robot size={110} glow={glow} bodyColor={bodyColor} />
@@ -251,9 +273,9 @@ const STYLE = `
 
 /* ── Main export ────────────────────────────────────────────── */
 
-interface Props { snap: DisplaySnapshot; }
+interface Props { snap: DisplaySnapshot; smoothedRobotRef: RobotPosRef; }
 
-export function SvgArena({ snap }: Props) {
+export function SvgArena({ snap, smoothedRobotRef }: Props) {
   return (
     <>
       <style>{STYLE}</style>
@@ -273,7 +295,7 @@ export function SvgArena({ snap }: Props) {
         {snap.enemies.map((e) => <EnemyEntity key={`enemy-${e.id}`} enemy={e} arena={snap.arena} />)}
         {/* robot */}
         <RobotEntity
-          pos={snap.robot} arena={snap.arena}
+          posRef={smoothedRobotRef} arena={snap.arena}
           attackQuadrant={snap.attackQuadrant}
           shieldQuadrant={snap.shieldQuadrant}
         />

@@ -51,7 +51,8 @@ function savePersisted(p: Persisted): void {
 export type VoiceFn = (ctx: AudioContext, out: AudioNode, t0: number) => void;
 export interface MusicVoice {
   // Schedules one bar starting at `t0`. Returns the time the bar ends.
-  scheduleBar: (ctx: AudioContext, out: AudioNode, t0: number) => number;
+  // `barIndex` lets voices vary content across bars to avoid loop monotony.
+  scheduleBar: (ctx: AudioContext, out: AudioNode, t0: number, barIndex: number) => number;
 }
 
 type Listener = () => void;
@@ -66,8 +67,15 @@ class AudioEngine {
   unlocked = false;
 
   private musicTrack: MusicTrack | null = null;
+  // Per-loop state. Each call to startMusicLoop bumps `musicGen`, getting its
+  // own gate node. Old schedule() callbacks bail when they see a stale gen,
+  // and the old gate is faded to 0 so already-scheduled notes go silent
+  // instead of bleeding into the new track.
+  private musicGen = 0;
+  private musicBarIndex = 0;
   private musicTimer: number | null = null;
   private musicEndAt = 0;
+  private musicGate: GainNode | null = null;
 
   private ensure(): AudioContext | null {
     if (this.ctx) return this.ctx;
@@ -110,8 +118,10 @@ class AudioEngine {
       try { await ctx.resume(); } catch { /* ignore */ }
     }
     this.unlocked = true;
-    // Re-start music if a track was selected before unlock.
-    if (this.musicTrack) this.startMusicLoop(this.musicTrack);
+    // Do NOT restart music here. A music loop scheduled before unlock keeps
+    // its scheduled notes; resume() unfreezes the clock and they play. The
+    // previous bug was double-starting the loop here, which spawned two
+    // parallel schedule chains and overlapped menu music with itself.
     this.emit();
   }
 
@@ -133,12 +143,35 @@ class AudioEngine {
   music(track: MusicTrack | null): void {
     if (this.musicTrack === track) return;
     this.musicTrack = track;
+    this.stopCurrentMusicLoop();
+    if (track) this.startMusicLoop(track);
+  }
+
+  // Stop the currently-running loop AND silence whatever has already been
+  // scheduled into the AudioContext's future. The gate is ramped to 0 over
+  // ~140ms then disconnected; queued oscillators continue running but produce
+  // no audible output.
+  private stopCurrentMusicLoop(): void {
+    this.musicGen++; // invalidate any in-flight schedule callback
     if (this.musicTimer !== null) {
       clearTimeout(this.musicTimer);
       this.musicTimer = null;
     }
     this.musicEndAt = 0;
-    if (track) this.startMusicLoop(track);
+    this.musicBarIndex = 0;
+    if (this.musicGate && this.ctx) {
+      const gate = this.musicGate;
+      const ctx = this.ctx;
+      const now = ctx.currentTime;
+      try {
+        gate.gain.cancelScheduledValues(now);
+        gate.gain.setValueAtTime(gate.gain.value, now);
+        gate.gain.linearRampToValueAtTime(0, now + 0.14);
+      } catch { /* ignore */ }
+      // Disconnect after the fade so the node can be GC'd.
+      window.setTimeout(() => { try { gate.disconnect(); } catch { /* ignore */ } }, 220);
+      this.musicGate = null;
+    }
   }
 
   private startMusicLoop(track: MusicTrack): void {
@@ -147,14 +180,26 @@ class AudioEngine {
     if (this.state.muted.master || this.state.muted.music) return;
     const voice = MUSIC[track];
     if (!voice) return;
+
+    // Per-loop gate. Routes scheduled music through a gain we own — when we
+    // switch tracks, ramp this to 0 so the queued tail goes silent.
+    const gate = ctx.createGain();
+    gate.gain.value = 1;
+    gate.connect(this.buses.music);
+    this.musicGate = gate;
+
+    const gen = ++this.musicGen;
+    this.musicBarIndex = 0;
     const schedule = () => {
+      if (gen !== this.musicGen) return; // stale — track changed/stopped
       if (this.musicTrack !== track) return;
       const now = ctx.currentTime;
       let t = Math.max(now + 0.05, this.musicEndAt);
-      // Schedule a couple of bars ahead so we never gap.
-      for (let i = 0; i < 2; i++) t = voice.scheduleBar(ctx, this.buses!.music, t);
+      // Schedule one bar ahead. Smaller lookahead means less residual to
+      // duck on track switch. We re-schedule before the bar ends.
+      t = voice.scheduleBar(ctx, gate, t, this.musicBarIndex++);
       this.musicEndAt = t;
-      const aheadMs = Math.max(50, (t - ctx.currentTime - 0.3) * 1000);
+      const aheadMs = Math.max(50, (t - ctx.currentTime - 0.25) * 1000);
       this.musicTimer = window.setTimeout(schedule, aheadMs);
     };
     schedule();
@@ -165,12 +210,11 @@ class AudioEngine {
     savePersisted(this.state);
     this.applyGains();
     if (c === 'master' || c === 'music') {
-      // Restart music if turning on, stop if turning off.
       if (muted) {
-        if (this.musicTimer !== null) clearTimeout(this.musicTimer);
-        this.musicTimer = null;
-        this.musicEndAt = 0;
-      } else if (this.musicTrack) {
+        // Hard-stop the loop AND silence queued tail.
+        this.stopCurrentMusicLoop();
+      } else if (this.musicTrack && !this.musicGate) {
+        // Only restart if no loop is running. (Avoids the double-start bug.)
         this.startMusicLoop(this.musicTrack);
       }
     }

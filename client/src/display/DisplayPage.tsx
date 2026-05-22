@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createSocket } from '../socket.js';
 import { DisplayLobby } from './DisplayLobby.js';
 import { useDisplayState } from './useDisplayState.js';
+import { useSmoothedRobot } from './useSmoothedRobot.js';
 import { PixiArena } from './PixiArena.js';
 import { HudOverlay } from './HudOverlay.js';
 import { HudBar } from './HudBar.js';
@@ -105,6 +106,7 @@ export function DisplayPage() {
 
   useGameAudio(snap);
 
+  const smoothedRobotRef = useSmoothedRobot(snap);
   const events = snap?.eventFeed ?? [];
 
   if (!snap || snap.phase === 'lobby') {
@@ -129,8 +131,8 @@ export function DisplayPage() {
     }}>
       <HudBar snap={snap} elapsed={elapsed} />
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-        <SvgArena snap={snap} />
-        <PixiArena snap={snap} />
+        <SvgArena snap={snap} smoothedRobotRef={smoothedRobotRef} />
+        <PixiArena snap={snap} smoothedRobotRef={smoothedRobotRef} />
         <EventFeed events={events} />
         <HudOverlay onResetRoom={onResetRoom} phase={snap.phase} countdownSec={countdownSec} />
         <MuteButton style={{ position: 'absolute', top: 12, right: 12, zIndex: 50 }} />
