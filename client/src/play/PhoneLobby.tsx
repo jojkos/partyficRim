@@ -23,7 +23,7 @@ export function PhoneLobby({ socket, role, roomCode, snap, onLeave }: Props) {
   // Single source of truth for "mine" remains `role` (the snapshot).
   const [inFlight, setInFlight] = useState<Role | 'release' | null>(null);
 
-  const playerCount = snap?.playerCount ?? 1;
+  const playerCount = snap?.playerCount ?? 0;
   const claims = snap?.roleClaims;
   const allClaimed = Boolean(claims?.defense && claims.repair && claims.weapons);
   const canStart = playerCount >= 3 && allClaimed && snap?.phase === 'lobby';

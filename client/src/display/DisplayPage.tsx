@@ -21,12 +21,8 @@ export function DisplayPage() {
   const playingRef = useRef(false);
 
   useEffect(() => {
-    if (requestedRef.current) return;
-    requestedRef.current = true;
-
     const params = new URLSearchParams(window.location.search);
-    const forceNew = params.get('new') === '1';
-    if (forceNew) {
+    if (params.get('new') === '1') {
       window.history.replaceState({}, '', '/display');
       localStorage.removeItem(STORAGE_KEY);
     }
@@ -40,7 +36,7 @@ export function DisplayPage() {
 
     const ensureRoom = () => {
       const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored && !forceNew) {
+      if (stored) {
         socket.emit('display:join_room', { roomCode: stored }, (res) => {
           if (res.ok) { setRoomCode(stored); return; }
           createNew();
@@ -50,8 +46,26 @@ export function DisplayPage() {
       }
     };
 
-    if (socket.connected) ensureRoom();
-    else socket.once('connect', ensureRoom);
+    const onConnect = () => {
+      if (requestedRef.current) {
+        // reconnect: just rebind to whatever room is in storage
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          socket.emit('display:join_room', { roomCode: stored }, (res) => {
+            if (res.ok) console.log('[display] rebound after reconnect', stored);
+            else console.log('[display] reconnect rebind failed, creating new');
+            if (!res.ok) createNew();
+          });
+        } else createNew();
+        return;
+      }
+      requestedRef.current = true;
+      ensureRoom();
+    };
+
+    if (socket.connected) onConnect();
+    socket.on('connect', onConnect);
+    return () => { socket.off('connect', onConnect); };
   }, [socket]);
 
   useEffect(() => {

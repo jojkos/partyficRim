@@ -30,7 +30,7 @@ export function DisplayLobby({ socket, roomCode, snap, onResetRoom }: Props) {
     return () => { cancelled = true; };
   }, [roomCode]);
 
-  const playerCount = snap?.players.length ?? 0;
+  const playerCount = snap?.players.filter((p) => p.connected).length ?? 0;
   const claims = snap?.roleClaims;
   const roleCount = (['defense', 'weapons', 'repair'] as Role[])
     .filter((r) => claims?.[r]).length;
