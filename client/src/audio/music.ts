@@ -24,8 +24,9 @@ const menu: MusicVoice = {
     const aRoot = root * 2 ** ((-3) / 12); // A3 ≈ 220
     const eighth = beat / 2;
     for (let i = 0; i < pattern.length; i++) {
+      const semi = pattern[i] ?? 0;
       tone(ctx, out, t0 + i * eighth, {
-        freq: hz(aRoot, pattern[i]), durMs: eighth * 1000 * 0.9,
+        freq: hz(aRoot, semi), durMs: eighth * 1000 * 0.9,
         type: 'triangle', gain: 0.18, attackMs: 5, releaseMs: 120,
       });
     }
@@ -58,9 +59,10 @@ const game: MusicVoice = {
     // Bass riff (16ths)
     const riff = [0, 0, 12, 0, 5, 0, 12, 0, 0, 0, 10, 0, 7, 0, 3, 0];
     for (let i = 0; i < riff.length; i++) {
-      if (riff[i] === 0 && i % 4 !== 0) continue; // sparse
+      const semi = riff[i] ?? 0;
+      if (semi === 0 && i % 4 !== 0) continue; // sparse
       tone(ctx, out, t0 + i * sixteenth, {
-        freq: hz(root, riff[i] - 12), durMs: sixteenth * 1000 * 0.9,
+        freq: hz(root, semi - 12), durMs: sixteenth * 1000 * 0.9,
         type: 'sawtooth', gain: 0.16, attackMs: 2, releaseMs: 60,
       });
     }
