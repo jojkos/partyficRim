@@ -35,6 +35,33 @@ function pruneDisconnectedUnclaimed(room: Room): void {
   }
 }
 
+function connectedCount(room: Room): number {
+  let n = 0;
+  for (const p of room.players.values()) if (p.connected) n++;
+  return n;
+}
+
+// Make room for a brand-new joiner. Disconnected unclaimed players are pruned
+// first (cheap). If a slot is still needed, evict the oldest disconnected
+// role-holder (their session is dead anyway — sessionId resume is checked
+// before this fn runs).
+function evictForNewJoiner(room: Room): void {
+  pruneDisconnectedUnclaimed(room);
+  if (connectedCount(room) >= 3) return; // not a slot problem
+  // If total records cap the slot logic, drop oldest disconnected role-holder.
+  // We track disconnect time implicitly by insertion order — Map preserves it,
+  // and we don't reinsert on reconnect, so iteration order ≈ join order.
+  for (const [id, p] of room.players) {
+    if (!p.connected) {
+      if (p.role === 'defense') room.shieldQuadrant = null;
+      if (p.role === 'weapons') room.attackQuadrant = null;
+      room.players.delete(id);
+      socketByPlayerId.delete(id);
+      break;
+    }
+  }
+}
+
 function cleanWeaponCoreSelection(room: Room): void {
   const available = new Set(offeredCores(room));
   const weapons = playerForRole(room, 'weapons');
@@ -199,11 +226,34 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
         log('room', `${roomCode} phone join refused: no_such_room (socket=${socket.id})`);
         return cb({ ok: false, error: 'no_such_room' });
       }
-      pruneDisconnectedUnclaimed(room);
 
+      // Idempotency for StrictMode double-fire and accidental re-joins:
+      // if this socket is already bound to a player in this room, return
+      // that player instead of creating a duplicate "ghost" record.
+      const sd = socket.data as { roomCode?: string; playerId?: string } | undefined;
+      if (sd?.roomCode === roomCode && sd.playerId) {
+        const existing = room.players.get(sd.playerId);
+        if (existing) {
+          existing.connected = true;
+          socketByPlayerId.set(existing.id, socket);
+          socket.join(`room:${room.code}:phones`);
+          log('room', `${roomCode} phone join idempotent (socket=${socket.id})`);
+          return cb({ ok: true, role: existing.role, sessionId: existing.sessionId });
+        }
+      }
+
+      // Resume by sessionId (survives socket reconnects + page reloads).
       if (sessionId) {
         for (const p of room.players.values()) {
           if (p.sessionId === sessionId) {
+            // If a different socket was previously bound to this player,
+            // tear that mapping down so we don't double-emit snapshots.
+            const prevSocket = socketByPlayerId.get(p.id);
+            if (prevSocket && prevSocket.id !== socket.id) {
+              const psd = prevSocket.data as { roomCode?: string; playerId?: string } | undefined;
+              if (psd?.playerId === p.id) prevSocket.data = {};
+              prevSocket.leave(`room:${room.code}:phones`);
+            }
             p.connected = true;
             socket.data = { roomCode, playerId: p.id };
             socket.join(`room:${room.code}:phones`);
@@ -214,10 +264,14 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
         }
       }
 
-      if (room.players.size >= 3) {
+      // Cap by *connected* players, not total records. Ghosts (disconnected,
+      // role-holding) don't block fresh joiners — they get evicted to make room.
+      if (connectedCount(room) >= 3) {
         log('room', `${roomCode} phone join refused: room_full (socket=${socket.id})`);
         return cb({ ok: false, error: 'room_full' });
       }
+
+      evictForNewJoiner(room);
 
       const newSessionId = randomUUID();
       const id = randomUUID();
@@ -239,7 +293,7 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
       socket.data = { roomCode, playerId: id };
       socket.join(`room:${room.code}:phones`);
       socketByPlayerId.set(id, socket);
-      log('room', `${roomCode} phone joined unclaimed (count=${room.players.size}) (socket=${socket.id})`);
+      log('room', `${roomCode} phone joined unclaimed (connected=${connectedCount(room)}/3, total=${room.players.size}) (socket=${socket.id})`);
       cb({ ok: true, role: null, sessionId: newSessionId });
     });
 
@@ -453,11 +507,16 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
       if (data?.playerId) {
         const room = mgr.getRoom(data.roomCode ?? '');
         const p = room?.players.get(data.playerId);
-        if (p) {
+        // Only flip connected=false if the player isn't already bound to a
+        // newer socket — otherwise a late disconnect would clobber a fresh
+        // reconnect that happened on a new socket.
+        const currentSocket = socketByPlayerId.get(data.playerId);
+        const stillBoundToUs = !currentSocket || currentSocket.id === socket.id;
+        if (p && stillBoundToUs) {
           p.connected = false;
           log('room', `${data.roomCode} player ${p.role} disconnected`);
         }
-        socketByPlayerId.delete(data.playerId);
+        if (stillBoundToUs) socketByPlayerId.delete(data.playerId);
       }
     });
   });

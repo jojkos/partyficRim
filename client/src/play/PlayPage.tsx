@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createSocket } from '../socket.js';
-import type { Role, PhoneSnapshot } from '@partyficrim/shared';
+import type { PhoneSnapshot } from '@partyficrim/shared';
 import { PhoneLobby } from './PhoneLobby.js';
 import { PhoneGame } from './PhoneGame.js';
 import { Robot } from '../display/Sprites.js';
@@ -43,31 +43,52 @@ export function PlayPage() {
   const initialRoom = urlRoom.length === 4 ? urlRoom : (stored?.roomCode ?? '');
 
   const [roomCode, setRoomCode] = useState(initialRoom);
-  const [role, setRole] = useState<Role | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [snap, setSnap] = useState<PhoneSnapshot | null>(null);
-  const joinSeqRef = useRef(0);
+
+  // StrictMode-safe join guard. Tracks the room we have already issued a
+  // phone:join for (or are in-flight on) so React's double-effect doesn't
+  // create a duplicate player record. Cleared on leave/room:ended.
+  const joinedForRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!roomCode || roomCode.length !== 4) return;
+    if (joinedForRef.current === roomCode) return; // already joining/joined
+    joinedForRef.current = roomCode;
     setSnap(null);
-    setRole(null);
-    const joinSeq = ++joinSeqRef.current;
     const session = loadSession();
-    // Only send sessionId if it's tied to the same room we're joining.
     const sessionId = session?.roomCode === roomCode ? session.sessionId : undefined;
 
     socket.emit('phone:join', { roomCode, sessionId }, (res) => {
-      if (joinSeq !== joinSeqRef.current) return;
+      if (joinedForRef.current !== roomCode) return; // user left mid-flight
       if (!res.ok) {
+        // Drop the guard so the user can retry by re-submitting the form.
+        joinedForRef.current = null;
         clearSession();
         setError(res.error);
         return;
       }
       saveSession({ roomCode, sessionId: res.sessionId });
-      setRole(res.role);
       setError(null);
     });
+  }, [socket, roomCode]);
+
+  // If the socket itself drops & reconnects (network blip), re-issue join
+  // with our sessionId so the server can resume us under the new socket.id.
+  useEffect(() => {
+    const onReconnect = () => {
+      const session = loadSession();
+      if (!session || session.roomCode !== roomCode || !roomCode) return;
+      socket.emit('phone:join', { roomCode, sessionId: session.sessionId }, (res) => {
+        if (!res.ok) {
+          joinedForRef.current = null;
+          clearSession();
+          setError(res.error);
+        }
+      });
+    };
+    socket.on('connect', onReconnect);
+    return () => { socket.off('connect', onReconnect); };
   }, [socket, roomCode]);
 
   useEffect(() => {
@@ -77,7 +98,6 @@ export function PlayPage() {
         console.log(`[phone] phase ${lastPhase || '(none)'} -> ${s.phase}`);
         lastPhase = s.phase;
       }
-      setRole(s.role);
       setSnap(s);
     };
     socket.on('phone:state', h);
@@ -85,12 +105,11 @@ export function PlayPage() {
   }, [socket]);
 
   const leaveRoom = () => {
-    joinSeqRef.current++;
+    joinedForRef.current = null;
     socket.emit('phone:leave', () => {
       clearSession();
       window.history.replaceState({}, '', '/play');
       setRoomCode('');
-      setRole(null);
       setSnap(null);
       setError(null);
     });
@@ -99,11 +118,11 @@ export function PlayPage() {
   useEffect(() => {
     const onEnded = () => {
       console.log('[phone] room:ended received');
+      joinedForRef.current = null;
       clearSession();
       // Strip ?room= so a refresh doesn't try to rejoin the dead room.
       window.history.replaceState({}, '', '/play');
       setRoomCode('');
-      setRole(null);
       setSnap(null);
       setError(null);
     };
@@ -128,10 +147,20 @@ export function PlayPage() {
             e.preventDefault();
             const v = (new FormData(e.currentTarget).get('code') as string).toUpperCase();
             if (v.length === 4) {
+              // Reset the join guard so the effect re-fires even when the
+              // resubmitted code equals the previous one (the previous attempt
+              // failed and we want to retry).
+              joinedForRef.current = null;
               setError(null);
               setSnap(null);
-              setRole(null);
-              setRoomCode(v);
+              if (v === roomCode) {
+                // Same code — state-set is a no-op; force the effect by
+                // clearing then re-setting on next tick.
+                setRoomCode('');
+                queueMicrotask(() => setRoomCode(v));
+              } else {
+                setRoomCode(v);
+              }
             }
           }}
         >
@@ -204,11 +233,12 @@ export function PlayPage() {
     );
   }
 
-  const effectiveRole = snap?.role ?? role;
+  // Single source of truth: the server snapshot. No local role mirror.
+  const snapshotRole = snap?.role ?? null;
 
   return snap?.phase === 'lobby' || snap?.phase === 'countdown' || snap === null
-    ? <PhoneLobby socket={socket} role={effectiveRole} roomCode={roomCode} snap={snap} onLeave={leaveRoom} />
-    : effectiveRole
-      ? <PhoneGame socket={socket} role={effectiveRole} roomCode={roomCode} onLeave={leaveRoom} />
-      : <PhoneLobby socket={socket} role={effectiveRole} roomCode={roomCode} snap={snap} onLeave={leaveRoom} />;
+    ? <PhoneLobby socket={socket} role={snapshotRole} roomCode={roomCode} snap={snap} onLeave={leaveRoom} />
+    : snapshotRole
+      ? <PhoneGame socket={socket} role={snapshotRole} roomCode={roomCode} onLeave={leaveRoom} />
+      : <PhoneLobby socket={socket} role={snapshotRole} roomCode={roomCode} snap={snap} onLeave={leaveRoom} />;
 }
