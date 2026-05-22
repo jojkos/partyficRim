@@ -323,6 +323,82 @@ describe('phone:join', () => {
     const connectedDefense = [...room.players.values()].find((p) => p.connected && p.role === 'defense');
     expect(connectedDefense).toBeDefined();
   });
+
+  // Regression: ghosts with claimed roles used to permanently consume slots,
+  // so a 4th player could not join even though all 3 owners were gone.
+  it('does NOT block a fresh joiner when 3 disconnected ghosts hold roles', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+
+    const p1 = await connect();
+    const p2 = await connect();
+    const p3 = await connect();
+    await emitPhoneJoin(p1, code);
+    await claimRole(p1, 'defense');
+    await emitPhoneJoin(p2, code);
+    await claimRole(p2, 'repair');
+    await emitPhoneJoin(p3, code);
+    await claimRole(p3, 'weapons');
+
+    p1.disconnect();
+    p2.disconnect();
+    p3.disconnect();
+    await sleep(50);
+
+    const p4 = await connect();
+    const r4 = await emitPhoneJoin(p4, code);
+    expect(r4.ok).toBe(true);
+  });
+
+  // Regression: room_full must be based on *connected* players, not on the
+  // total record count. The UI shows roles as OPEN when their holder is
+  // disconnected — the server must accept new joiners in that case.
+  it('caps room by connected count, not by total player records', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+
+    const p1 = await connect();
+    const p2 = await connect();
+    await emitPhoneJoin(p1, code);
+    await claimRole(p1, 'defense');
+    await emitPhoneJoin(p2, code);
+    await claimRole(p2, 'repair');
+
+    // p1 vanishes — connected drops to 1.
+    p1.disconnect();
+    await sleep(50);
+
+    // Two more fresh phones must both be admitted (connected goes to 1→2→3),
+    // then the next one must be refused.
+    const p3 = await connect();
+    const p4 = await connect();
+    const p5 = await connect();
+    const r3 = await emitPhoneJoin(p3, code);
+    const r4 = await emitPhoneJoin(p4, code);
+    const r5 = await emitPhoneJoin(p5, code);
+    expect(r3.ok).toBe(true);
+    expect(r4.ok).toBe(true);
+    expect(r5.ok).toBe(false);
+    if (!r5.ok) expect(r5.error).toBe('room_full');
+  });
+
+  // Regression: React StrictMode (or any rapid retry) used to emit two
+  // phone:join calls on one socket, creating two server-side player records
+  // from one browser. Second call must be idempotent and return the same id.
+  it('is idempotent when the same socket emits phone:join twice', async () => {
+    const display = await connect();
+    const code = await emitCreateRoom(display);
+
+    const phone = await connect();
+    const r1 = await emitPhoneJoin(phone, code);
+    const r2 = await emitPhoneJoin(phone, code);
+    expect(r1.ok).toBe(true);
+    expect(r2.ok).toBe(true);
+    if (r1.ok && r2.ok) {
+      expect(r2.sessionId).toBe(r1.sessionId);
+    }
+    expect(mgr.getRoom(code)?.players.size).toBe(1);
+  });
 });
 
 describe('role controls', () => {

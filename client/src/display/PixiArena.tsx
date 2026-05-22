@@ -48,16 +48,12 @@ export function PixiArena({ snap }: Props) {
 function render(snap: DisplaySnapshot, layers: Layers, app: PIXI.Application) {
   const sw = app.screen.width;
   const sh = app.screen.height;
-  const margin = 0; // no margin — arena fills container
-  const scaleX = (sw - margin * 2) / snap.arena.w;
-  const scaleY = (sh - margin * 2) / snap.arena.h;
-  const scale = Math.min(scaleX, scaleY);
-  const offsetX = (sw - snap.arena.w * scale) / 2;
-  const offsetY = (sh - snap.arena.h * scale) / 2;
-
-  const tx = (x: number) => offsetX + (x - snap.arena.x) * scale;
-  const ty = (y: number) => offsetY + (y - snap.arena.y) * scale;
-  const ts = (v: number) => v * scale;
+  // Match SvgArena's stretch mapping so attack visuals align with the robot sprite.
+  const scaleX = sw / snap.arena.w;
+  const scaleY = sh / snap.arena.h;
+  const tx = (x: number) => (x - snap.arena.x) * scaleX;
+  const ty = (y: number) => (y - snap.arena.y) * scaleY;
+  const ts = (v: number) => v * Math.min(scaleX, scaleY);
 
   // attacks & bombs only
   layers.attacks.clear();
