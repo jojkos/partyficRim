@@ -1,142 +1,203 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { createSocket } from '../socket.js';
-import { DisplayLobby } from './DisplayLobby.js';
-import { useDisplayState } from './useDisplayState.js';
-import { useSmoothedRobot } from './useSmoothedRobot.js';
-import { PixiArena } from './PixiArena.js';
-import { HudOverlay } from './HudOverlay.js';
-import { HudBar } from './HudBar.js';
-import { SvgArena } from './SvgArena.js';
-import { EventFeed } from './EventFeed.js';
-import { useGameAudio } from '../audio/useGameAudio.js';
-import { MuteButton } from '../audio/MuteButton.js';
-
-const STORAGE_KEY = 'partyficrim.displayRoomCode';
-
+import { useEffect,  useState, lazy, Suspense } from "react";
+import { useRoomSocket } from "../socket.js";
+import { DisplayLobby } from "./DisplayLobby.js";
+import { useDisplayState } from "./useDisplayState.js";
+import { HudBar } from "./HudBar.js";
+import { useGameAudio } from "../audio/useGameAudio.js";
+import { MuteButton } from "../audio/MuteButton.js";
+import { Robot } from "./Sprites.js";
+import { ConnectionNote, useConnection } from "../net/useConnection.js";
+const Arena = lazy(() => import("./GameArena.js"));
+const KEY = "partyficrim.host";
+interface Host {
+  roomCode: string;
+  hostToken: string;
+}
+function stored(): Host | null {
+  try {
+    const p = JSON.parse(localStorage.getItem(KEY) ?? "null");
+    return typeof p?.hostToken === "string" && typeof p?.roomCode === "string"
+      ? p
+      : null;
+  } catch {
+    return null;
+  }
+}
+function save(host: Host) {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(host));
+    localStorage.removeItem("partyficrim.displayRoomCode");
+  } catch {
+    /* Private-mode storage may be unavailable. */
+  }
+}
 export function DisplayPage() {
-  const socket = useMemo(() => createSocket(), []);
-  const snap = useDisplayState(socket);
-  const [roomCode, setRoomCode] = useState<string | null>(null);
-  const requestedRef = useRef(false);
-  const [elapsed, setElapsed] = useState(0);
-  const playingRef = useRef(false);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('new') === '1') {
-      window.history.replaceState({}, '', '/display');
-      localStorage.removeItem(STORAGE_KEY);
+  const socket = useRoomSocket("display"),
+    online = useConnection(socket);
+  const [host, setHost] = useState<Host | null>(() => {
+    if (new URLSearchParams(location.search).get("new") === "1") {
+      try {
+        localStorage.removeItem(KEY);
+      } catch {}
+      history.replaceState({}, "", "/display");
+      return null;
     }
-
-    const createNew = () => {
-      socket.emit('display:create_room', ({ roomCode: code }) => {
-        localStorage.setItem(STORAGE_KEY, code);
-        setRoomCode(code);
-      });
-    };
-
-    const ensureRoom = () => {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        socket.emit('display:join_room', { roomCode: stored }, (res) => {
-          if (res.ok) { setRoomCode(stored); return; }
-          createNew();
-        });
-      } else {
-        createNew();
+    return stored();
+  });
+  const [ready, setReady] = useState(false),
+    [notice, setNotice] = useState(""),
+    [retry, setRetry] = useState(0);
+  const { snap, frames } = useDisplayState(socket, host?.roomCode ?? null);
+  useEffect(() => {
+    let active = true;
+    const ensure = async () => {
+      if (!socket.connected) return;
+      setReady(false);
+      try {
+        const saved = stored();
+        if (saved) {
+          const res = await socket
+            .timeout(4500)
+            .emitWithAck("display:join_room", saved);
+          if (!active) return;
+          if (res.ok) {
+            setHost(saved);
+            setReady(true);
+            return;
+          }
+          setNotice(
+            "The previous room has ended. A fresh room is ready for your crew.",
+          );
+        }
+        const res = await socket
+          .timeout(4500)
+          .emitWithAck("display:create_room");
+        if (!active) return;
+        save(res);
+        setHost(res);
+        setReady(true);
+      } catch {
+        if (active)
+          setNotice("The arena did not respond. Reconnect or try again.");
       }
     };
-
-    const onConnect = () => {
-      if (requestedRef.current) {
-        // reconnect: just rebind to whatever room is in storage
-        const stored = localStorage.getItem(STORAGE_KEY);
-        if (stored) {
-          socket.emit('display:join_room', { roomCode: stored }, (res) => {
-            if (res.ok) console.log('[display] rebound after reconnect', stored);
-            else console.log('[display] reconnect rebind failed, creating new');
-            if (!res.ok) createNew();
-          });
-        } else createNew();
-        return;
-      }
-      requestedRef.current = true;
-      ensureRoom();
+    const disconnect = () => setReady(false);
+    socket.on("connect", ensure);
+    socket.on("disconnect", disconnect);
+    void ensure();
+    return () => {
+      active = false;
+      socket.off("connect", ensure);
+      socket.off("disconnect", disconnect);
     };
-
-    if (socket.connected) onConnect();
-    socket.on('connect', onConnect);
-    return () => { socket.off('connect', onConnect); };
-  }, [socket]);
-
-  useEffect(() => {
-    const onRestarted = ({ newRoomCode }: { newRoomCode: string }) => {
-      socket.emit('display:join_room', { roomCode: newRoomCode }, (res) => {
-        if (!res.ok) return;
-        localStorage.setItem(STORAGE_KEY, newRoomCode);
-        setRoomCode(newRoomCode);
-      });
-    };
-    socket.on('display:room_restarted', onRestarted);
-    return () => { socket.off('display:room_restarted', onRestarted); };
-  }, [socket]);
-
-  // survival timer: counts up while phase === 'playing'
-  useEffect(() => {
-    const isPlaying = snap?.phase === 'playing';
-    if (isPlaying && !playingRef.current) {
-      playingRef.current = true;
-      setElapsed(0);
+  }, [socket, retry]);
+  const reset = async () => {
+    if (!ready || !socket.connected) return;
+    try {
+      const res = await socket.timeout(4500).emitWithAck("display:end_room");
+      const next = { roomCode: res.newRoomCode, hostToken: res.hostToken };
+      save(next);
+      setHost(next);
+      setNotice("");
+    } catch {
+      setNotice("Could not create a new room. Try again after reconnecting.");
     }
-    if (!isPlaying) playingRef.current = false;
-  }, [snap?.phase]);
-
-  useEffect(() => {
-    if (snap?.phase !== 'playing') return;
-    const id = setInterval(() => setElapsed((s) => s + 1), 1000);
-    return () => clearInterval(id);
-  }, [snap?.phase]);
-
-  const onResetRoom = () => {
-    socket.emit('display:end_room', ({ newRoomCode }) => {
-      localStorage.setItem(STORAGE_KEY, newRoomCode);
-      setRoomCode(newRoomCode);
-    });
   };
-
   useGameAudio(snap);
-
-  const smoothedRobotRef = useSmoothedRobot(snap);
-  const events = snap?.eventFeed ?? [];
-
-  if (!snap || snap.phase === 'lobby') {
+  if (!snap || snap.phase === "lobby")
     return (
       <>
-        <DisplayLobby socket={socket} roomCode={roomCode} snap={snap} onResetRoom={onResetRoom} />
-        <EventFeed events={events} />
-        <MuteButton style={{ position: 'fixed', top: 16, right: 16, zIndex: 50 }} />
+        <DisplayLobby
+          socket={socket}
+          roomCode={host?.roomCode ?? null}
+          snap={snap}
+          onResetRoom={() => void reset()}
+          ready={online && ready}
+          notice={notice}
+        />
+        {(!online || !ready) && (
+          <ConnectionNote online={online} ready={ready} />
+        )}{" "}
+        {notice && !ready && (
+          <button
+            className="quiet-button"
+            onClick={() => setRetry((n) => n + 1)}
+            style={{ position: "fixed", bottom: 20, left: 20 }}
+          >
+            Try again
+          </button>
+        )}
       </>
     );
-  }
-
-  const countdownSec = snap.phase === 'countdown'
-    ? Math.max(1, Math.ceil(snap.countdownMsRemaining / 1000))
-    : null;
-
+  const disconnected = snap.players
+    .filter((p) => !p.connected && p.role)
+    .map((p) => p.role)
+    .join(", ");
   return (
-    <div style={{
-      position: 'fixed', inset: 0,
-      display: 'flex', flexDirection: 'column',
-      background: '#0a0b14',
-    }}>
-      <HudBar snap={snap} elapsed={elapsed} />
-      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-        <SvgArena snap={snap} smoothedRobotRef={smoothedRobotRef} />
-        <PixiArena snap={snap} smoothedRobotRef={smoothedRobotRef} />
-        <EventFeed events={events} />
-        <HudOverlay onResetRoom={onResetRoom} phase={snap.phase} countdownSec={countdownSec} />
-        <MuteButton style={{ position: 'absolute', top: 12, right: 12, zIndex: 50 }} />
-      </div>
-    </div>
+    <main className="game-page">
+      <HudBar snap={snap} />
+      <section className="arena-host">
+        <Suspense
+          fallback={<div className="game-overlay">Preparing the arena…</div>}
+        >
+          <Arena frames={frames} />
+        </Suspense>
+        <span className="arena-caption">
+          Stay together. Keep the robot rolling.
+        </span>
+        <div className="arena-options">
+          <MuteButton upward />
+          <button
+            className="quiet-button"
+            onClick={() => void reset()}
+            disabled={!ready}
+          >
+            End game
+          </button>
+        </div>
+        {snap.phase === "countdown" && (
+          <div className="game-overlay">
+            <span className="eyebrow">All stations ready</span>
+            <span className="countdown-number">
+              {Math.max(1, Math.ceil(snap.countdownMsRemaining / 1000))}
+            </span>
+            <h1>Let’s roll, crew.</h1>
+          </div>
+        )}
+        {snap.phase === "paused" && (
+          <div className="game-overlay" role="status">
+            <Robot size={120} />
+            <h1>Waiting for the crew.</h1>
+            <p>
+              {disconnected
+                ? `${disconnected[0]?.toUpperCase()}${disconnected.slice(1)} ${disconnected.includes(",") ? "are" : "is"} reconnecting.`
+                : "A station needs a connected pilot."}
+              <br />
+              Your run is paused safely.
+            </p>
+          </div>
+        )}
+        {snap.phase === "gameover" && (
+          <div className="game-overlay">
+            <Robot size={140} />
+            <h1>A good run, crew.</h1>
+            <p>
+              You kept the robot rolling for {Math.floor(snap.elapsedMs / 1000)}{" "}
+              seconds. Ready for another adventure?
+            </p>
+            <button
+              className="primary-button"
+              disabled={!ready}
+              onClick={() => {
+                if (socket.connected) socket.emit("client:restart_room");
+              }}
+            >
+              Play again →
+            </button>
+          </div>
+        )}
+      </section>
+      <ConnectionNote online={online} ready={ready} />
+    </main>
   );
 }

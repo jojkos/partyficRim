@@ -1,483 +1,374 @@
-import { useEffect, useState, useCallback, type CSSProperties } from 'react';
-import type { AttackKind, CoreType, PhoneSnapshot, Quadrant, Role } from '@partyficrim/shared';
-import { CORE_COLORS, ROLE_LABEL } from '@partyficrim/shared';
-import type { AppSocket } from '../socket.js';
-import { Joystick } from './Joystick.js';
-import { useLandscape } from './useLandscape.js';
-import { Robot } from '../display/Sprites.js';
-import { PR } from '../ui/theme.js';
-import { audio } from '../audio/engine.js';
-
-const ROLE_NUMBER: Record<Role, number> = { defense: 1, repair: 2, weapons: 3 };
-const QUADRANT_ARROW = ['↖', '↗', '↙', '↘'] as const;
-const QUADRANT_LABEL = ['NW', 'NE', 'SW', 'SE'] as const;
-const ATTACKS: AttackKind[] = ['melee', 'rotary', 'laser', 'bomb'];
-
-interface Props { socket: AppSocket; role: Role; roomCode: string; onLeave: () => void; }
-
-const FIRE_FLASH_MS = 220;
-
-export function PhoneGame({ socket, role, onLeave }: Props) {
-  const [snap, setSnap] = useState<PhoneSnapshot | null>(null);
-  const [firedQuadrant, setFiredQuadrant] = useState<number | null>(null);
-  const { isLandscape, enterFullscreenLandscape, canFullscreen, isStandalone } = useLandscape();
-
-  useEffect(() => {
-    const h = (s: PhoneSnapshot) => setSnap(s);
-    socket.on('phone:state', h);
-    return () => { socket.off('phone:state', h); };
-  }, [socket]);
-
-  const onMove = useCallback((dx: number, dy: number) => {
-    socket.emit('phone:input', { dx, dy });
-  }, [socket]);
-  const onAction = useCallback(() => {
-    audio.play('ui.tap');
-    socket.emit('phone:button');
-  }, [socket]);
-  const onSelect = useCallback((index: number) => {
-    audio.play('ui.tap');
-    const offered = snap?.offeredCores[index];
-    const selected = role === 'weapons'
-      ? Boolean(offered && snap?.weaponSelectedCores.includes(offered))
-      : (snap?.selectedCores.includes(index) ?? false);
-    socket.emit('phone:select', { index, on: !selected });
-  }, [role, socket, snap]);
-  const onQuadrant = useCallback((index: number) => {
-    // Phone only plays its own UI reaction. The actual repair/attack SFX is
-    // emitted by the display from the game snapshot.
-    audio.play('ui.tap');
-    if (role === 'repair') socket.emit('phone:repair', { quadrant: index });
-    else socket.emit('phone:quadrant', { index });
-    // weapons direction is one-shot on the server — flash the tapped button
-    // briefly so the user still gets visual feedback of the press.
-    if (role === 'weapons') {
-      setFiredQuadrant(index);
-      window.setTimeout(() => {
-        setFiredQuadrant((cur) => (cur === index ? null : cur));
-      }, FIRE_FLASH_MS);
-    }
-  }, [role, socket]);
-  const onSelectAttack = useCallback((kind: AttackKind) => {
-    audio.play('ui.tap');
-    socket.emit('phone:select_attack', { kind: snap?.selectedAttackKind === kind ? null : kind });
-  }, [socket, snap?.selectedAttackKind]);
-  const onRestart = useCallback(() => {
-    socket.emit('client:restart_room');
-  }, [socket]);
-
-  const onFoot = snap?.mode === 'on_foot';
-  let lockAxis: 'x' | 'y' | null = null;
-  if (!onFoot && role !== 'weapons') lockAxis = role === 'defense' ? 'x' : 'y';
-  const lockHint = onFoot ? '8-WAY' : (role === 'defense' ? 'L↔R' : role === 'repair' ? 'U↕D' : 'FREE');
-  const color = PR.role[role];
-  const isWeapons = role === 'weapons';
-  const isRepair = role === 'repair';
-  const gameover = snap?.phase === 'gameover';
-  const actionLabel = onFoot ? 'ENTER' : 'EXIT';
-  const actionDisabled = (onFoot && !snap?.nearRobot) || gameover;
-  const controlsDisabled = onFoot || gameover;
-
-  // ── ROTATE HINT (portrait)
-  if (!isLandscape) {
-    return (
-      <div style={{
-        position: 'fixed', inset: 0,
-        background: PR.color.bg, fontFamily: PR.font.sans, color: PR.color.paper,
-        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        gap: 14, padding: 24, textAlign: 'center',
-      }}>
-        <div style={{
-          font: `400 64px ${PR.font.display}`, color, lineHeight: 1,
-          animation: 'pr-rotate-hint 1.6s ease-in-out infinite',
-        }}>↻</div>
-        <div style={{ font: `700 22px ${PR.font.sans}`, letterSpacing: 2, color }}>
-          ROTATE YOUR PHONE
-        </div>
-        <div style={{ font: `500 12px ${PR.font.sans}`, opacity: 0.6, letterSpacing: 1 }}>
-          partyficRim is played in landscape
-        </div>
-        {canFullscreen && !isStandalone && (
-          <button
-            onClick={enterFullscreenLandscape}
-            className="pr-bevel-btn"
-            style={{
-              marginTop: 8, background: color, color: PR.color.ink,
-              border: `3px solid ${PR.color.ink}`, borderRadius: PR.r.md,
-              boxShadow: PR.shadow(3, 4, PR.color.ink),
-              font: `400 18px ${PR.font.display}`, letterSpacing: 3,
-              padding: '8px 22px', cursor: 'pointer',
-            }}>
-            ENTER FULLSCREEN
-          </button>
-        )}
-      </div>
-    );
-  }
-
-  // ── GAME OVER full-screen
-  if (gameover) {
-    return (
-      <div style={{
-        position: 'fixed', inset: 0,
-        background: `linear-gradient(180deg, ${PR.color.cherry} 0%, ${PR.color.flameDk} 100%)`,
-        fontFamily: PR.font.sans, color: PR.color.paper,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        gap: 24, padding: 24, overflow: 'hidden',
-      }}>
-        <button
-          onClick={onLeave}
-          style={{
-            position: 'absolute', top: 8, right: 12,
-            font: `700 10px ${PR.font.sans}`, letterSpacing: 1,
-            color: PR.color.paper, opacity: 0.85,
-            border: `1px solid ${PR.color.paper}55`, borderRadius: 6,
-            padding: '5px 10px',
-            background: 'rgba(0,0,0,0.30)', cursor: 'pointer',
-          }}>Leave</button>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{
-            font: `400 56px ${PR.font.display}`, color: PR.color.sun,
-            textShadow: `3px 5px 0 ${PR.color.ink}`, letterSpacing: 4, lineHeight: 1,
-          }}>GAME<br />OVER</div>
-          <div style={{
-            font: `700 11px ${PR.font.sans}`, letterSpacing: 3, marginTop: 8,
-            color: PR.color.paper, opacity: 0.9,
-          }}>THE RIM HAS FALLEN</div>
-          <button
-            onClick={onRestart}
-            className="pr-bevel-btn"
-            style={{
-              marginTop: 14, display: 'inline-block',
-              background: PR.color.sun, color: PR.color.ink,
-              border: `3px solid ${PR.color.ink}`, borderRadius: PR.r.md,
-              padding: '8px 28px', boxShadow: PR.shadow(3, 4, PR.color.ink),
-              font: `400 22px ${PR.font.display}`, letterSpacing: 3, cursor: 'pointer',
-            }}>RESTART</button>
-        </div>
-        <div style={{
-          transform: 'rotate(-12deg)',
-          animation: 'pr-shake 0.6s ease-in-out infinite',
-        }}>
-          <Robot size={130} glow={PR.color.cherry} />
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{
-      position: 'fixed', inset: 0, width: '100%', height: '100%',
-      touchAction: 'none', userSelect: 'none', overflow: 'hidden',
-      display: 'grid', gridTemplateRows: '30px 1fr',
-      background: PR.color.bgDeep, fontFamily: PR.font.sans, color: PR.color.paper,
-    }}>
-      {/* TOP BAR */}
-      <div style={{
-        display: 'flex', alignItems: 'center',
-        gap: 10, paddingInline: 10,
-        background: PR.color.bg, borderBottom: `2px solid ${color}`,
-      }}>
-        <div style={{
-          width: 12, height: 12, background: color,
-          border: `2px solid ${PR.color.ink}`, borderRadius: 3,
-        }} />
-        <div style={{
-          font: `700 12px ${PR.font.sans}`, letterSpacing: 2.5, color,
-        }}>P{ROLE_NUMBER[role]} · {ROLE_LABEL[role]}</div>
-        <div style={{ font: `500 10px ${PR.font.mono}`, opacity: 0.5, marginLeft: 6 }}>
-          {onFoot ? 'ON FOOT' : 'IN ROBOT'}
-        </div>
-        <div style={{ flex: 1 }} />
-        {canFullscreen && !isStandalone && (
-          <button
-            onClick={enterFullscreenLandscape}
-            title="Enter fullscreen"
-            style={{
-              font: `700 10px ${PR.font.sans}`, letterSpacing: 1,
-              color: PR.color.paper, opacity: 0.85,
-              border: `1px solid ${PR.color.paper}33`, borderRadius: 6,
-              padding: '4px 8px',
-              background: 'rgba(0,0,0,0.45)', cursor: 'pointer',
-              lineHeight: 1,
-            }}>⛶</button>
-        )}
-        <button
-          onClick={onLeave}
-          style={{
-            font: `700 10px ${PR.font.sans}`, letterSpacing: 1,
-            color: PR.color.paper, opacity: 0.85,
-            border: `1px solid ${PR.color.paper}33`, borderRadius: 6,
-            padding: '4px 10px',
-            background: 'rgba(0,0,0,0.45)', cursor: 'pointer',
-          }}>Leave</button>
-      </div>
-
-      {/* 3-COLUMN GRID */}
-      <div style={{
-        display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', height: '100%',
-      }}>
-        {/* LEFT: joystick (or OFFERED grid for weapons), then action */}
-        <div style={{
-          padding: 10, borderRight: `1px dashed ${color}55`,
-          display: 'flex', flexDirection: 'column', gap: 8, minHeight: 0,
-        }}>
-          {isWeapons && !onFoot ? (
-            <>
-              <div style={{
-                font: `700 9px ${PR.font.sans}`, letterSpacing: 2,
-                color, opacity: 0.85, marginBottom: -2,
-              }}>OFFERED CORES</div>
-              <div style={{ flex: 1, minHeight: 0 }}>
-                <CoreGrid
-                  cores={snap?.offeredCores ?? []}
-                  selected={(type) => Boolean(type && snap?.weaponSelectedCores.includes(type))}
-                  disabled={controlsDisabled}
-                  onSelect={onSelect}
-                />
-              </div>
-            </>
-          ) : (
-            <JoystickWrap color={color} hint={lockHint} disabled={gameover}>
-              <Joystick lockAxis={lockAxis} onMove={onMove} color={color} />
-            </JoystickWrap>
-          )}
-          <ActionBtn color={color} label={actionLabel} disabled={actionDisabled} onClick={onAction} />
-        </div>
-
-        {/* MIDDLE: inventory cores (defense/repair) or attack list (weapons) */}
-        <div style={{
-          padding: 10, borderRight: `1px dashed ${color}55`, minHeight: 0,
-          display: isWeapons ? 'grid' : 'block',
-          gap: isWeapons ? 8 : 0,
-          gridTemplateRows: isWeapons ? 'repeat(4, 1fr)' : undefined,
-        }}>
-          {isWeapons ? (
-            ATTACKS.map((kind) => {
-              const on = snap?.selectedAttackKind === kind;
-              return (
-                <button
-                  key={kind}
-                  onPointerDown={(e) => { if (!controlsDisabled) { e.preventDefault(); onSelectAttack(kind); } }}
-                  disabled={controlsDisabled}
-                  className={!controlsDisabled ? 'pr-bevel-btn' : undefined}
-                  style={{
-                    border: `3px solid ${on ? PR.color.sun : '#ffffff44'}`,
-                    borderRadius: PR.r.md,
-                    background: on ? PR.color.sun : 'rgba(255,224,102,0.10)',
-                    color: on ? PR.color.ink : PR.color.sun,
-                    boxShadow: on ? PR.shadow(2, 3, PR.color.ink) : 'none',
-                    font: `700 14px ${PR.font.sans}`, letterSpacing: 3,
-                    padding: 0, cursor: controlsDisabled ? 'not-allowed' : 'pointer',
-                    opacity: controlsDisabled ? 0.45 : 1,
-                  }}>
-                  {kind.toUpperCase()}
-                </button>
-              );
-            })
-          ) : (
-            <CoreGrid
-              cores={snap?.inventory ?? []}
-              selected={(_, index) => snap?.selectedCores.includes(index) ?? false}
-              disabled={controlsDisabled}
-              onSelect={onSelect}
-            />
-          )}
-        </div>
-
-        {/* RIGHT: 2x2 quadrants */}
-        <div style={{
-          padding: 10, position: 'relative',
-          display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: 8,
-        }}>
-          <div style={{
-            position: 'absolute', top: -1, right: 4,
-            font: `700 9px ${PR.font.sans}`, letterSpacing: 2,
-            color, opacity: 0.7,
-          }}>{isRepair ? 'TAP TO REPAIR' : 'TAP TO TARGET'}</div>
-          {[0, 1, 2, 3].map((i) => {
-            const hp = snap?.quadrantHp[i as Quadrant] ?? 100;
-            const selected = isWeapons ? firedQuadrant === i : snap?.quadrant === i;
-            const low = hp < 30;
-            const arrow = QUADRANT_ARROW[i];
-            const label = QUADRANT_LABEL[i];
-            let borderColor: string;
-            if (selected) borderColor = color;
-            else if (low) borderColor = PR.color.cherry;
-            else borderColor = '#ffffff33';
-            return (
-              <button
-                key={i}
-                onPointerDown={(e) => { if (!controlsDisabled) { e.preventDefault(); onQuadrant(i); } }}
-                disabled={controlsDisabled}
-                style={{
-                  position: 'relative', overflow: 'hidden',
-                  border: `3px solid ${borderColor}`,
-                  borderRadius: PR.r.md,
-                  background: selected && !isRepair ? color : PR.color.panel,
-                  color: selected && !isRepair ? PR.color.ink : PR.color.paper,
-                  cursor: controlsDisabled ? 'not-allowed' : 'pointer',
-                  opacity: controlsDisabled ? 0.45 : 1,
-                  display: 'grid', placeItems: 'center', padding: 0,
-                  fontFamily: PR.font.sans,
-                }}>
-                {isRepair && (
-                  <div style={{
-                    position: 'absolute', inset: 0,
-                    background: `linear-gradient(to top, ${low ? PR.color.cherry : color} ${hp}%, transparent ${hp}%)`,
-                    opacity: 0.55,
-                  }} />
-                )}
-                <div style={{ position: 'relative', textAlign: 'center' }}>
-                  {isRepair ? (
-                    <>
-                      <div style={{
-                        font: `700 11px ${PR.font.sans}`, letterSpacing: 1, opacity: 0.9,
-                      }}>{label}</div>
-                      <div style={{
-                        font: `400 22px ${PR.font.display}`, lineHeight: 1,
-                        color: low ? PR.color.cherry : PR.color.paper,
-                      }}>{hp}%</div>
-                    </>
-                  ) : (
-                    <div style={{
-                      font: `700 30px ${PR.font.sans}`, lineHeight: 1,
-                    }}>{arrow}</div>
-                  )}
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  CORE_COLORS,
+  type AttackKind,
+  type CoreType,
+  type PhoneSnapshot,
+  type Role,
+} from "@partyficrim/shared";
+import type { AppSocket } from "../socket.js";
+import { ROLE_COLOR } from "../ui/art.js";
+import { StationIcon } from "../ui/StationIcon.js";
+import { Robot } from "../display/Sprites.js";
+import { MuteButton } from "../audio/MuteButton.js";
+import { audio } from "../audio/engine.js";
+import { Joystick } from "./Joystick.js";
+import { useControllerInput } from "./useControllerInput.js";
+import { useLandscape } from "./useLandscape.js";
+const ARROWS = ["↖", "↗", "↙", "↘"],
+  DIRECTIONS = ["NW", "NE", "SW", "SE"];
+const ATTACKS: AttackKind[] = ["melee", "rotary", "laser", "bomb"];
+interface Props {
+  socket: AppSocket;
+  role: Role;
+  roomCode: string;
+  onLeave: () => void;
+  snap: PhoneSnapshot;
+  ready: boolean;
 }
-
-function JoystickWrap({
-  color, hint, disabled, children,
-}: {
-  color: string; hint: string; disabled: boolean; children: React.ReactNode;
-}) {
+function WeaponIcon({ kind }: { kind: AttackKind }) {
   return (
-    <div style={{
-      flex: 1, position: 'relative',
-      background: PR.color.panel, border: `2px dashed ${color}aa`, borderRadius: PR.r.md,
-      minHeight: 0, opacity: disabled ? 0.4 : 1,
-      pointerEvents: disabled ? 'none' : 'auto',
-      overflow: 'hidden',
-    }}>
-      {hint === 'L↔R' && (
-        <div style={{
-          position: 'absolute', top: '50%', left: 8, right: 8,
-          height: 0, borderTop: `1px dashed ${color}55`,
-        }} />
+    <svg
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      fill="none"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {kind === "melee" ? (
+        <>
+          <path d="m4 19 3-3m-1-3 5 5M8 14 18 4l2 2L10 16" />
+        </>
+      ) : kind === "rotary" ? (
+        <>
+          <circle cx="12" cy="12" r="7" />
+          <path d="M12 4v5m7 3h-5m-2 7v-5m-7-2h5" />
+        </>
+      ) : kind === "laser" ? (
+        <>
+          <path d="m3 20 7-8-4-2L20 3l-7 8 4 2Z" />
+        </>
+      ) : (
+        <>
+          <circle cx="11" cy="15" r="7" />
+          <path d="m14 9 2-4h4m-2-3 3 1-1 3" />
+        </>
       )}
-      {hint === 'U↕D' && (
-        <div style={{
-          position: 'absolute', left: '50%', top: 8, bottom: 8,
-          width: 0, borderLeft: `1px dashed ${color}55`,
-        }} />
-      )}
-      {children}
-      <div style={{
-        position: 'absolute', top: 6, left: 8, pointerEvents: 'none',
-        font: `700 9px ${PR.font.sans}`, letterSpacing: 1.5, color, opacity: 0.85,
-      }}>MOVE</div>
-      <div style={{
-        position: 'absolute', bottom: 6, right: 8, pointerEvents: 'none',
-        font: `700 8px ${PR.font.mono}`, letterSpacing: 1, color, opacity: 0.6,
-      }}>{hint}</div>
-    </div>
+    </svg>
   );
 }
-
-function ActionBtn({
-  color, label, disabled, onClick,
-}: {
-  color: string; label: string; disabled: boolean; onClick: () => void;
-}) {
-  return (
-    <button
-      onPointerDown={(e) => { if (!disabled) { e.preventDefault(); onClick(); } }}
-      disabled={disabled}
-      className={!disabled ? 'pr-bevel-btn' : undefined}
-      style={actionStyle(color, disabled)}>
-      ⊙ {label}
-    </button>
-  );
-}
-
-function actionStyle(color: string, disabled: boolean): CSSProperties {
-  return {
-    background: disabled ? 'rgba(255,255,255,0.05)' : PR.color.sun,
-    color: disabled ? '#666' : PR.color.ink,
-    border: `3px solid ${disabled ? '#444' : PR.color.ink}`,
-    borderRadius: PR.r.md,
-    font: `400 22px ${PR.font.display}`,
-    letterSpacing: 3, padding: '6px 0',
-    boxShadow: disabled ? 'none' : PR.shadow(3, 4, PR.color.ink),
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    // role color is intentionally unused on the action button — the design
-    // calls for the bright sun-yellow CTA against the role-colored frame.
-    outlineColor: color,
-  };
-}
-
-function CoreGrid({
-  cores,
+function Cores({
+  items,
   selected,
   disabled,
   onSelect,
 }: {
-  cores: CoreType[];
-  selected: (type: CoreType | undefined, index: number) => boolean;
-  disabled: boolean | undefined;
-  onSelect: (index: number) => void;
+  items: CoreType[];
+  selected: (i: number, t: CoreType) => boolean;
+  disabled: boolean;
+  onSelect: (i: number, t: CoreType) => void;
 }) {
   return (
-    <div style={{
-      display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr',
-      gap: 6, width: '100%', height: '100%', minHeight: 0,
-    }}>
-      {[0, 1, 2, 3].map((i) => {
-        const type = cores[i];
-        const hex = type ? CORE_COLORS[type] : null;
-        const on = type ? selected(type, i) : false;
-        const isDisabled = disabled || !type;
+    <div className="core-grid">
+      {Array.from({ length: 4 }, (_, i) => {
+        const t = items[i];
         return (
           <button
             key={i}
-            onPointerDown={(e) => { if (!isDisabled) { e.preventDefault(); onSelect(i); } }}
-            disabled={isDisabled}
-            className={!isDisabled ? 'pr-bevel-btn' : undefined}
-            style={{
-              position: 'relative',
-              border: `3px solid ${type && hex ? hex : '#ffffff22'}`,
-              borderRadius: PR.r.md,
-              background: on && hex ? hex : 'transparent',
-              color: on ? PR.color.ink : (hex ?? '#fff'),
-              display: 'grid', placeItems: 'center',
-              font: `700 12px ${PR.font.sans}`, letterSpacing: 1.5,
-              cursor: isDisabled ? 'not-allowed' : 'pointer',
-              opacity: isDisabled ? 0.45 : 1,
-              minHeight: 0, padding: 0,
-            }}>
-            {type && hex ? (
+            className={`core-button ${t && selected(i, t) ? "selected" : ""}`}
+            disabled={!t || disabled}
+            style={
+              { "--core": t ? CORE_COLORS[t] : "#5d526c" } as CSSProperties
+            }
+            aria-pressed={Boolean(t && selected(i, t))}
+            aria-label={
+              t
+                ? `${t} core ${selected(i, t) ? "selected" : "available"}`
+                : "Empty core slot"
+            }
+            onClick={() => {
+              if (t) onSelect(i, t);
+            }}
+          >
+            {t ? (
               <>
-                <div style={{
-                  position: 'absolute', top: 4, right: 4,
-                  width: 10, height: 10, borderRadius: '50%',
-                  background: hex, border: `2px solid ${PR.color.ink}`,
-                }} />
-                <span>{type.toUpperCase()}</span>
+                <span className="core-gem" />
+                <span>{t[0]!.toUpperCase() + t.slice(1)}</span>
               </>
             ) : (
-              <span style={{ font: `700 9px ${PR.font.sans}`, opacity: 0.4 }}>EMPTY</span>
+              <span>Empty</span>
             )}
           </button>
         );
       })}
     </div>
+  );
+}
+export function PhoneGame({
+  socket,
+  role,
+  roomCode,
+  onLeave,
+  snap,
+  ready,
+}: Props) {
+  const { isLandscape, canFullscreen, enterFullscreenLandscape } =
+    useLandscape();
+  const enabled = ready && snap.phase === "playing" && isLandscape,
+    onFoot = snap.mode === "on_foot";
+  const move = useControllerInput(socket, enabled, snap.mode),
+    [flash, setFlash] = useState<number | null>(null),
+    timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+  const action = () => {
+    if (!enabled || !socket.connected) return;
+    audio.play("ui.tap");
+    socket.emit("phone:button");
+  };
+  const quadrant = (index: number) => {
+    if (!enabled || !socket.connected || onFoot) return;
+    audio.play("ui.tap");
+    socket.emit("phone:quadrant", { index });
+    if (role === "weapons" && snap.selectedAttackKind) {
+      setFlash(index);
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(() => setFlash(null), 220);
+    }
+  };
+  const selectCore = (index: number, type: CoreType) => {
+    if (!enabled || !socket.connected || onFoot) return;
+    audio.play("ui.tap");
+    socket.emit("phone:select", {
+      index,
+      on:
+        role === "weapons"
+          ? !snap.weaponSelectedCores.includes(type)
+          : !snap.selectedCores.includes(index),
+    });
+  };
+  const header = (
+    <header className="controller-topbar">
+      <span className="station-name">
+        <StationIcon role={role} size={18} />
+        {role[0]!.toUpperCase() + role.slice(1)}
+      </span>
+      <span className="mode">
+        {onFoot ? "On foot" : "In robot"} · {roomCode}
+      </span>
+      <MuteButton size={34} />
+      <button className="quiet-button" onClick={onLeave}>
+        Leave
+      </button>
+    </header>
+  );
+  if (!isLandscape)
+    return (
+      <main className="rotate-view">
+        <div className="topbar">
+          <span className="pill">Room {roomCode}</span>
+          <button className="quiet-button" onClick={onLeave}>
+            Leave
+          </button>
+        </div>
+        <Robot size={145} />
+        <h1>Turn your phone.</h1>
+        <p>
+          Your station works best in landscape.
+          <br />
+          The arena pauses if a pilot disconnects.
+        </p>
+        {canFullscreen && (
+          <button
+            className="primary-button"
+            onClick={() => void enterFullscreenLandscape()}
+          >
+            ⛶ Enter fullscreen
+          </button>
+        )}
+      </main>
+    );
+  if (snap.phase === "gameover")
+    return (
+      <main
+        className="phone-game"
+        style={{ "--station": ROLE_COLOR[role] } as CSSProperties}
+      >
+        {header}
+        <section className="game-overlay">
+          <Robot size={100} />
+          <h1>A good run, crew.</h1>
+          <p>The robot needs another go.</p>
+          <button
+            className="primary-button"
+            disabled={!ready}
+            onClick={() => {
+              if (ready && socket.connected) socket.emit("client:restart_room");
+            }}
+          >
+            Play again →
+          </button>
+        </section>
+      </main>
+    );
+  return (
+    <main
+      className="phone-game"
+      style={{ "--station": ROLE_COLOR[role] } as CSSProperties}
+    >
+      {header}
+      <div className="controller-body">
+        <section className="control-panel">
+          <div className="control-heading">
+            {role === "weapons" && !onFoot ? "Offered cores" : "Movement"}
+            <span>
+              {onFoot
+                ? "8-way"
+                : role === "defense"
+                  ? "↔"
+                  : role === "repair"
+                    ? "↕"
+                    : ""}
+            </span>
+          </div>
+          {role === "weapons" && !onFoot ? (
+            <Cores
+              items={snap.offeredCores}
+              selected={(_, t) => snap.weaponSelectedCores.includes(t)}
+              disabled={!enabled}
+              onSelect={selectCore}
+            />
+          ) : (
+            <div className="joystick-wrap">
+              <Joystick
+                lockAxis={onFoot ? null : role === "defense" ? "x" : "y"}
+                onMove={move}
+                color={ROLE_COLOR[role]}
+                disabled={!enabled}
+              />
+            </div>
+          )}
+          <button
+            className="control-action"
+            disabled={!enabled || (onFoot && !snap.nearRobot)}
+            onClick={action}
+          >
+            {onFoot
+              ? snap.nearRobot
+                ? "Enter robot"
+                : "Get closer to enter"
+              : "Exit robot"}
+          </button>
+        </section>
+        <section className="control-panel">
+          <div className="control-heading">
+            {role === "weapons" ? "Choose a weapon" : "Your cores"}
+          </div>
+          {role === "weapons" ? (
+            <div className="weapon-list">
+              {ATTACKS.map((kind) => (
+                <button
+                  key={kind}
+                  className={`weapon-button ${snap.selectedAttackKind === kind ? "selected" : ""}`}
+                  disabled={!enabled || onFoot}
+                  aria-pressed={snap.selectedAttackKind === kind}
+                  onClick={() => {
+                    if (!socket.connected) return;
+                    audio.play("ui.tap");
+                    socket.emit("phone:select_attack", {
+                      kind: snap.selectedAttackKind === kind ? null : kind,
+                    });
+                  }}
+                >
+                  <WeaponIcon kind={kind} />
+                  <span>{kind[0]!.toUpperCase() + kind.slice(1)}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <Cores
+              items={snap.inventory}
+              selected={(i) => snap.selectedCores.includes(i)}
+              disabled={!enabled || onFoot}
+              onSelect={selectCore}
+            />
+          )}
+          <p className="control-help">
+            {onFoot
+              ? "Robot controls return when you enter."
+              : role === "weapons"
+                ? "Tap a direction to fire your selected weapon."
+                : "Offer up to two cores to the weapons pilot."}
+          </p>
+        </section>
+        <section className="control-panel">
+          <div className="control-heading">
+            {role === "defense"
+              ? "Shield direction"
+              : role === "repair"
+                ? "Repair a quadrant"
+                : "Fire direction"}
+          </div>
+          <div className="quadrant-grid">
+            {([0, 1, 2, 3] as const).map((q) => (
+              <button
+                key={q}
+                className={`quadrant-button ${snap.quadrant === q ? "selected" : ""} ${flash === q ? "fired" : ""}`}
+                aria-label={`${role === "defense" ? "Shield" : role === "repair" ? "Repair" : "Fire"} ${DIRECTIONS[q]}, health ${snap.quadrantHp[q]} percent`}
+                aria-pressed={
+                  role === "defense" ? snap.quadrant === q : undefined
+                }
+                disabled={
+                  !enabled ||
+                  onFoot ||
+                  (role === "weapons" && !snap.selectedAttackKind)
+                }
+                onClick={() => quadrant(q)}
+              >
+                <span className="direction">{ARROWS[q]}</span>
+                <span className="quadrant-meta">
+                  <span>{DIRECTIONS[q]}</span>
+                  <span>{snap.quadrantHp[q]}%</span>
+                </span>
+                <div className="health-track">
+                  <i
+                    style={{
+                      width: `${snap.quadrantHp[q]}%`,
+                      background:
+                        snap.quadrantHp[q] < 30
+                          ? "var(--pink)"
+                          : ROLE_COLOR[role],
+                    }}
+                  />
+                </div>
+              </button>
+            ))}
+          </div>
+          <p className="control-help">
+            {role === "defense"
+              ? "Tap again to lower the shield."
+              : role === "repair"
+                ? "Tap a quadrant to restore 5 health."
+                : "NW · NE · SW · SE match the arena."}
+          </p>
+        </section>
+      </div>
+      {(!ready || snap.phase === "paused") && (
+        <div className="controller-blocker" role="status">
+          <h2>{ready ? "Crew connection lost." : "Reconnecting…"}</h2>
+          <p>
+            {ready
+              ? "The game resumes when every station is connected."
+              : "Hold on. Your station will reconnect automatically."}
+          </p>
+        </div>
+      )}
+    </main>
   );
 }

@@ -1,197 +1,130 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from "@playwright/test";
 import {
   connectPhone,
   phoneJoinAndClaim,
   disconnectPhone,
   waitForEvent,
-} from './helpers.js';
-
-/** Helper: open /display?new=1, wait for room code, return it. */
-async function createDisplayRoom(page: import('@playwright/test').Page): Promise<string> {
-  await page.goto('/display?new=1');
-  const heading = page.locator('h1');
-  await expect(heading).toBeVisible({ timeout: 5000 });
-  // Wait for QR code too — that guarantees the room is fully created on the server
-  await expect(page.locator('img[alt="join QR"]')).toBeVisible({ timeout: 5000 });
-  const code = await heading.textContent();
-  expect(code).toMatch(/^[A-Z]{4}$/);
-  return code!;
+} from "./helpers.js";
+async function createRoom(page: Page) {
+  await page.goto("/display?new=1");
+  const code = page.getByTestId("room-code");
+  await expect(code).toHaveText(/^[A-Z]{4}$/);
+  await expect(page.getByAltText("join QR")).toBeVisible();
+  return (await code.innerText()).trim();
 }
-
-test.describe('Display Lobby', () => {
-  test('shows room code and QR code after opening /display', async ({ page }) => {
-    const code = await createDisplayRoom(page);
-    expect(code).toMatch(/^[A-Z]{4}$/);
-  });
-
-  test('shows player count and role claim status', async ({ page }) => {
-    const roomCode = await createDisplayRoom(page);
-
-    // Initial state: 0/3 players, all roles unclaimed
-    await expect(page.getByText('Players (0/3)')).toBeVisible();
-    await expect(page.getByText('Defense —')).toBeVisible();
-    await expect(page.getByText('Repair —')).toBeVisible();
-    await expect(page.getByText('Weapons —')).toBeVisible();
-
-    // Connect a phone and claim defense
-    const phone1 = await connectPhone();
-    try {
-      await phoneJoinAndClaim(phone1, roomCode, 'defense');
-
-      // Player count and defense should update
-      await expect(page.getByText('Players (1/3)')).toBeVisible({ timeout: 3000 });
-      await expect(page.getByText('Defense ✓')).toBeVisible({ timeout: 3000 });
-    } finally {
-      disconnectPhone(phone1);
-    }
-  });
-
-  test('START button enables when 3 roles claimed', async ({ page }) => {
-    const roomCode = await createDisplayRoom(page);
-
-    const startBtn = page.getByRole('button', { name: 'START' });
-    await expect(startBtn).toBeDisabled();
-
-    const phones = await Promise.all([connectPhone(), connectPhone(), connectPhone()]);
-    try {
-      await phoneJoinAndClaim(phones[0]!, roomCode, 'defense');
-      await phoneJoinAndClaim(phones[1]!, roomCode, 'repair');
-      await phoneJoinAndClaim(phones[2]!, roomCode, 'weapons');
-
-      await expect(startBtn).toBeEnabled({ timeout: 3000 });
-    } finally {
-      phones.forEach(disconnectPhone);
-    }
-  });
+async function crew(code: string) {
+  const phones = await Promise.all([
+    connectPhone(),
+    connectPhone(),
+    connectPhone(),
+  ]);
+  for (const [i, role] of (["defense", "repair", "weapons"] as const).entries())
+    await phoneJoinAndClaim(phones[i]!, code, role);
+  return phones;
+}
+test("host lobby shows QR and truthful readiness", async ({ page }) => {
+  const code = await createRoom(page);
+  await expect(page.getByText("0/3 ready")).toBeVisible();
+  const phone = await connectPhone();
+  try {
+    await phoneJoinAndClaim(phone, code, "defense");
+    await expect(page.getByText("1/3 ready")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Launch game →" }),
+    ).toBeDisabled();
+  } finally {
+    disconnectPhone(phone);
+  }
 });
-
-test.describe('Game Start Flow', () => {
-  test('clicking START transitions through countdown to playing', async ({ page }) => {
-    const roomCode = await createDisplayRoom(page);
-
-    const phones = await Promise.all([connectPhone(), connectPhone(), connectPhone()]);
-    try {
-      await phoneJoinAndClaim(phones[0]!, roomCode, 'defense');
-      await phoneJoinAndClaim(phones[1]!, roomCode, 'repair');
-      await phoneJoinAndClaim(phones[2]!, roomCode, 'weapons');
-
-      const startBtn = page.getByRole('button', { name: 'START' });
-      await expect(startBtn).toBeEnabled({ timeout: 3000 });
-      await startBtn.click();
-
-      // Countdown number should appear (3, 2, or 1)
-      const countdown = page.locator('div').filter({ hasText: /^[123]$/ }).first();
-      await expect(countdown).toBeVisible({ timeout: 3000 });
-
-      // After ~3s, the game canvas should appear (PixiArena renders a canvas)
-      const canvas = page.locator('canvas');
-      await expect(canvas).toBeVisible({ timeout: 6000 });
-    } finally {
-      phones.forEach(disconnectPhone);
-    }
-  });
+test("three pilots can launch, and a disconnect pauses the arena", async ({
+  page,
+}) => {
+  const code = await createRoom(page),
+    phones = await crew(code);
+  try {
+    await page.getByRole("button", { name: "Launch game →" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Let’s roll, crew." }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("img", { name: "Cooperative robot arena" }),
+    ).toBeVisible({ timeout: 7000 });
+    await expect(page.getByTestId("survival-time")).not.toHaveText("00:00", {
+      timeout: 7000,
+    });
+    disconnectPhone(phones[0]!);
+    await expect(
+      page.getByRole("heading", { name: "Waiting for the crew." }),
+    ).toBeVisible();
+  } finally {
+    phones.forEach(disconnectPhone);
+  }
 });
-
-test.describe('New Game Button', () => {
-  test('lobby "× new game" creates a new room code', async ({ page }) => {
-    const oldCode = await createDisplayRoom(page);
-
-    const newGameBtn = page.getByRole('button', { name: '× new game' });
-    await newGameBtn.click();
-
-    // A new room code should appear (different from old)
-    const heading = page.locator('h1');
-    await expect(heading).not.toHaveText(oldCode, { timeout: 5000 });
-    const newCode = await heading.textContent();
-    expect(newCode).toMatch(/^[A-Z]{4}$/);
-    expect(newCode).not.toBe(oldCode);
-  });
-
-  test('"× new game" kicks phones with room:ended', async ({ page }) => {
-    const roomCode = await createDisplayRoom(page);
-
-    const phones = await Promise.all([connectPhone(), connectPhone()]);
-    try {
-      await phoneJoinAndClaim(phones[0]!, roomCode, 'defense');
-      await phoneJoinAndClaim(phones[1]!, roomCode, 'repair');
-
-      // Listen for room:ended on phones BEFORE clicking the button
-      const ended1 = waitForEvent(phones[0]!, 'room:ended');
-      const ended2 = waitForEvent(phones[1]!, 'room:ended');
-
-      const newGameBtn = page.getByRole('button', { name: '× new game' });
-      await newGameBtn.click();
-
-      // Phones should receive room:ended
-      await Promise.all([ended1, ended2]);
-    } finally {
-      phones.forEach(disconnectPhone);
-    }
-  });
-
-  test('"× end game" during playing returns to lobby with new room', async ({ page }) => {
-    const roomCode = await createDisplayRoom(page);
-
-    const phones = await Promise.all([connectPhone(), connectPhone(), connectPhone()]);
-    try {
-      await phoneJoinAndClaim(phones[0]!, roomCode, 'defense');
-      await phoneJoinAndClaim(phones[1]!, roomCode, 'repair');
-      await phoneJoinAndClaim(phones[2]!, roomCode, 'weapons');
-
-      // Start the game
-      const startBtn = page.getByRole('button', { name: 'START' });
-      await expect(startBtn).toBeEnabled({ timeout: 3000 });
-      await startBtn.click();
-
-      // Wait for game canvas
-      const canvas = page.locator('canvas');
-      await expect(canvas).toBeVisible({ timeout: 6000 });
-
-      // Click end game button (in HudOverlay during playing)
-      const endGameBtn = page.getByRole('button', { name: '× end game' });
-      await endGameBtn.click();
-
-      // Should return to lobby with a new room code
-      const heading = page.locator('h1');
-      await expect(heading).toBeVisible({ timeout: 5000 });
-      const newCode = await heading.textContent();
-      expect(newCode).toMatch(/^[A-Z]{4}$/);
-      expect(newCode).not.toBe(roomCode);
-    } finally {
-      phones.forEach(disconnectPhone);
-    }
-  });
+test("host refresh retains the room and selected stations", async ({
+  page,
+}) => {
+  const code = await createRoom(page),
+    phone = await connectPhone();
+  try {
+    await phoneJoinAndClaim(phone, code, "repair");
+    await expect(page.getByText("1/3 ready")).toBeVisible();
+    await page.reload();
+    await expect(page.getByTestId("room-code")).toHaveText(code);
+    await expect(page.getByText("1/3 ready")).toBeVisible();
+  } finally {
+    disconnectPhone(phone);
+  }
 });
-
-test.describe('Phone Join Page', () => {
-  test('phone can join via /play?room=CODE and see lobby', async ({ page, browser }) => {
-    const roomCode = await createDisplayRoom(page);
-
-    // Open a phone page in a new browser context
-    const phoneContext = await browser.newContext();
-    const phonePage = await phoneContext.newPage();
-    try {
-      await phonePage.goto(`/play?room=${roomCode}`);
-
-      // Phone should show the lobby with "Pick your station" text
-      await expect(phonePage.getByText('Pick your station')).toBeVisible({ timeout: 5000 });
-
-      // Role buttons should be visible
-      await expect(phonePage.getByRole('button', { name: 'DEFENSE OFFICER' })).toBeVisible({ timeout: 3000 });
-      await expect(phonePage.getByRole('button', { name: 'REPAIR ENGINEER' })).toBeVisible();
-      await expect(phonePage.getByRole('button', { name: 'WEAPONS ENGINEER' })).toBeVisible();
-
-      // Display should reflect the phone joining (count may include stale sockets from prior tests)
-      await expect(page.getByText(/Players \([1-3]\/3\)/)).toBeVisible({ timeout: 5000 });
-    } finally {
-      await phoneContext.close();
-    }
-  });
-
-  test('phone shows error for invalid room code', async ({ page }) => {
-    await page.goto('/play?room=ZZZZ');
-
-    // Should show an error message
-    await expect(page.getByText("Couldn't join ZZZZ")).toBeVisible({ timeout: 5000 });
-  });
+test("new room disconnects the old crew and replaces the join code", async ({
+  page,
+}) => {
+  const code = await createRoom(page),
+    phone = await connectPhone();
+  try {
+    await phoneJoinAndClaim(phone, code, "defense");
+    const ended = waitForEvent(phone, "room:ended");
+    await page.getByRole("button", { name: "New room", exact: true }).click();
+    await ended;
+    await expect(page.getByTestId("room-code")).not.toHaveText(code);
+    await expect(page.getByText("0/3 ready")).toBeVisible();
+  } finally {
+    disconnectPhone(phone);
+  }
+});
+test("mobile landing has complete usable Host and Join controls", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 667 });
+  await page.goto("/");
+  for (const name of [/Host a game/, /Join the crew/]) {
+    const button = page.getByRole("link", { name });
+    await expect(button).toBeVisible();
+    const box = await button.boundingBox();
+    expect(box?.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(375);
+  }
+});
+test("phone lobby keeps all stations and launch on a 375 × 667 screen", async ({
+  page,
+}) => {
+  const code = await createRoom(page);
+  await page.setViewportSize({ width: 375, height: 667 });
+  await page.goto(`/play?room=${code}`);
+  await expect(
+    page.getByRole("button", { name: /Defense Steer/ }),
+  ).toBeEnabled();
+  for (const name of [/Defense Steer/, /Weapons Choose/, /Repair Steer/])
+    await expect(page.getByRole("button", { name })).toBeVisible();
+  const box = await page
+    .getByRole("button", { name: "Launch game →" })
+    .boundingBox();
+  expect(box!.y + box!.height).toBeLessThanOrEqual(667);
+});
+test("the same invalid join code can be retried", async ({ page }) => {
+  await page.goto("/play");
+  await page.getByLabel("Room code").fill("ZZZZ");
+  await page.getByRole("button", { name: "Join the crew →" }).click();
+  await expect(page.getByRole("alert")).toBeVisible();
+  await page.getByRole("button", { name: "Join the crew →" }).click();
+  await expect(page.getByRole("alert")).toBeVisible();
 });

@@ -1,17 +1,42 @@
-import type { DisplaySnapshot, PhoneSnapshot, Role, Mode, Phase, Quadrant } from '@partyficrim/shared';
-import type { Room } from './rooms.js';
-import { addAttack, playerForRole, roleClaims } from './rooms.js';
-import { computeRobotVelocity, applyMovement, computeOnFootVelocity } from './movement.js';
-import { resolveCollisions } from './collision.js';
-import { handleButton, isNearRobot } from './exit_enter.js';
-import { CORE_INTERVAL_MS, CORE_MAX, trySpawnCore, unavailableCoreTypes, processCorePickups, offeredCores } from './cores.js';
-import { applyBombDamage } from './attacks.js';
-import { applyEnemyContactDamage, ENEMY_INTERVAL_MS, ENEMY_MAX, killEnemiesInAttack, moveEnemies, trySpawnEnemy } from './enemies.js';
-import { log } from '../log.js';
+import type {
+  DisplaySnapshot,
+  PhoneSnapshot,
+  Role,
+  Mode,
+  Phase,
+  Quadrant,
+} from "@partyficrim/shared";
+import type { Room } from "./rooms.js";
+import { addAttack, playerForRole, roleClaims } from "./rooms.js";
+import {
+  computeRobotVelocity,
+  applyMovement,
+  computeOnFootVelocity,
+} from "./movement.js";
+import { resolveCollisions } from "./collision.js";
+import { handleButton, isNearRobot } from "./exit_enter.js";
+import {
+  CORE_INTERVAL_MS,
+  CORE_MAX,
+  trySpawnCore,
+  unavailableCoreTypes,
+  processCorePickups,
+  offeredCores,
+} from "./cores.js";
+import { applyBombDamage } from "./attacks.js";
+import {
+  applyEnemyContactDamage,
+  ENEMY_INTERVAL_MS,
+  ENEMY_MAX,
+  killEnemiesInAttack,
+  moveEnemies,
+  trySpawnEnemy,
+} from "./enemies.js";
+import { log } from "../log.js";
 
 function setPhase(room: Room, next: Phase): void {
   if (room.phase === next) return;
-  log('phase', `${room.code} ${room.phase} -> ${next}`);
+  log("phase", `${room.code} ${room.phase} -> ${next}`);
   room.phase = next;
 }
 
@@ -34,44 +59,62 @@ function allRequiredRolesClaimed(room: Room): boolean {
 }
 
 export function requestStart(room: Room): void {
-  if (room.phase === 'lobby' && connectedPlayerCount(room) >= 3 && allRequiredRolesClaimed(room)) {
-    setPhase(room, 'countdown');
+  if (
+    room.phase === "lobby" &&
+    connectedPlayerCount(room) >= 3 &&
+    allRequiredRolesClaimed(room)
+  ) {
+    setPhase(room, "countdown");
     room.countdownMsRemaining = COUNTDOWN_MS;
   }
 }
 
 export function tickRoom(room: Room, dt: number): void {
   const dtMs = dt * 1000;
+  room.sequence++;
+  const nowInput = Date.now();
+  for (const p of room.players.values()) {
+    if (
+      ["paused", "countdown", "gameover"].includes(room.phase) ||
+      !p.connected ||
+      (p.lastInputAt !== undefined && nowInput - p.lastInputAt > 500)
+    ) {
+      p.lastInput = { x: 0, y: 0 };
+      p.lastButtonAt = 0;
+    }
+  }
 
-  if (room.phase === 'lobby') {
+  if (room.phase === "lobby") {
     // start is now manual via requestStart(); the lobby just sits here.
     return;
   }
 
-  if (room.phase === 'countdown') {
+  if (room.phase === "countdown") {
     if (connectedPlayerCount(room) < 3 || !allRequiredRolesClaimed(room)) {
-      setPhase(room, 'lobby');
+      setPhase(room, "lobby");
       room.countdownMsRemaining = 0;
       return;
     }
     room.countdownMsRemaining -= dtMs;
     if (room.countdownMsRemaining <= 0) {
-      setPhase(room, 'playing');
+      setPhase(room, "playing");
       room.countdownMsRemaining = 0;
     }
     return;
   }
 
-  if (room.phase === 'playing') {
+  if (room.phase === "playing") {
     if (!allRequiredRolesClaimed(room)) {
       room.pauseStartedAt = Date.now();
-      setPhase(room, 'paused');
+      setPhase(room, "paused");
       return;
     }
 
-    const defense = playerForRole(room, 'defense');
-    const repair = playerForRole(room, 'repair');
+    const defense = playerForRole(room, "defense");
+    const repair = playerForRole(room, "repair");
     if (!defense || !repair) return;
+
+    room.elapsedMs += dtMs;
 
     // process pending button presses before movement
     for (const p of room.players.values()) {
@@ -82,15 +125,17 @@ export function tickRoom(room: Room, dt: number): void {
     }
 
     const robotVel = computeRobotVelocity(
-      { x: { input: defense.lastInput, mode: defense.mode },
-        y: { input: repair.lastInput, mode: repair.mode } },
-      ROBOT_SPEED
+      {
+        x: { input: defense.lastInput, mode: defense.mode },
+        y: { input: repair.lastInput, mode: repair.mode },
+      },
+      ROBOT_SPEED,
     );
     applyMovement(room.robot, robotVel, dt);
     resolveCollisions(room.robot, ROBOT_HALF, room.obstacles, room.arena);
 
     for (const p of room.players.values()) {
-      if (p.mode === 'on_foot') {
+      if (p.mode === "on_foot") {
         const v = computeOnFootVelocity(p.lastInput, PLAYER_SPEED);
         applyMovement(p.pos, v, dt);
         resolveCollisions(p.pos, PLAYER_HALF, room.obstacles, room.arena);
@@ -105,7 +150,10 @@ export function tickRoom(room: Room, dt: number): void {
     moveEnemies(room, dt);
     applyEnemyContactDamage(room, now);
     room.attacks = room.attacks
-      .map((attack) => ({ ...attack, ttlMsRemaining: attack.ttlMsRemaining - dtMs }))
+      .map((attack) => ({
+        ...attack,
+        ttlMsRemaining: attack.ttlMsRemaining - dtMs,
+      }))
       .filter((attack) => attack.ttlMsRemaining > 0);
     for (let i = room.bombs.length - 1; i >= 0; i--) {
       const bomb = room.bombs[i];
@@ -113,22 +161,32 @@ export function tickRoom(room: Room, dt: number): void {
       bomb.fuseMsRemaining = Math.max(0, bomb.fuseAt - now);
       if (bomb.fuseMsRemaining <= 0) {
         room.bombs.splice(i, 1);
-        addAttack(room, 'bomb', room.attackQuadrant ?? 1, [], bomb.pos);
-        killEnemiesInAttack(room, 'bomb', room.attackQuadrant ?? 1, bomb.pos);
+        addAttack(room, "bomb", room.attackQuadrant ?? 1, [], bomb.pos);
+        killEnemiesInAttack(room, "bomb", room.attackQuadrant ?? 1, bomb.pos);
         applyBombDamage(room, bomb.pos);
       }
     }
 
     const spawned = trySpawnCore({
-      now, lastSpawnAt: room.lastCoreSpawnAt, intervalMs: CORE_INTERVAL_MS,
-      max: CORE_MAX, arena: room.arena, obstacles: room.obstacles, existing: room.cores,
+      now,
+      lastSpawnAt: room.lastCoreSpawnAt,
+      intervalMs: CORE_INTERVAL_MS,
+      max: CORE_MAX,
+      arena: room.arena,
+      obstacles: room.obstacles,
+      existing: room.cores,
       unavailableTypes: unavailableCoreTypes(room),
     });
     if (spawned) room.lastCoreSpawnAt = now;
 
     const enemySpawned = trySpawnEnemy({
-      now, lastSpawnAt: room.lastEnemySpawnAt, intervalMs: ENEMY_INTERVAL_MS,
-      max: ENEMY_MAX, arena: room.arena, obstacles: room.obstacles, existing: room.enemies,
+      now,
+      lastSpawnAt: room.lastEnemySpawnAt,
+      intervalMs: ENEMY_INTERVAL_MS,
+      max: ENEMY_MAX,
+      arena: room.arena,
+      obstacles: room.obstacles,
+      existing: room.enemies,
     });
     if (enemySpawned) room.lastEnemySpawnAt = now;
 
@@ -136,16 +194,16 @@ export function tickRoom(room: Room, dt: number): void {
       { pos: room.robot, half: ROBOT_HALF },
     ];
     for (const p of room.players.values()) {
-      if (p.mode === 'on_foot') pickers.push({ pos: p.pos, half: PLAYER_HALF });
+      if (p.mode === "on_foot") pickers.push({ pos: p.pos, half: PLAYER_HALF });
     }
     processCorePickups(room, pickers, defense, repair);
     return;
   }
 
-  if (room.phase === 'paused') {
+  if (room.phase === "paused") {
     if (connectedPlayerCount(room) >= 3 && allRequiredRolesClaimed(room)) {
       resumeFromPause(room);
-      setPhase(room, 'playing');
+      setPhase(room, "playing");
     }
     return;
   }
@@ -165,14 +223,29 @@ function resumeFromPause(room: Room): void {
 
 export function buildDisplaySnapshot(room: Room): DisplaySnapshot {
   return {
+    sequence: room.sequence,
+    serverTime: Date.now(),
+    elapsedMs: room.elapsedMs,
     phase: room.phase,
     countdownMsRemaining: room.countdownMsRemaining,
     robot: { x: room.robot.x, y: room.robot.y },
     players: [...room.players.values()].map((p) => ({
-      id: p.id, role: p.role, mode: p.mode, pos: { x: p.pos.x, y: p.pos.y }, connected: p.connected,
+      id: p.id,
+      role: p.role,
+      mode: p.mode,
+      pos: { x: p.pos.x, y: p.pos.y },
+      connected: p.connected,
     })),
-    cores: [...room.cores.values()].map((u) => ({ id: u.id, type: u.type, pos: { x: u.pos.x, y: u.pos.y } })),
-    enemies: [...room.enemies.values()].map((e) => ({ id: e.id, pos: { x: e.pos.x, y: e.pos.y }, vel: { x: e.vel.x, y: e.vel.y } })),
+    cores: [...room.cores.values()].map((u) => ({
+      id: u.id,
+      type: u.type,
+      pos: { x: u.pos.x, y: u.pos.y },
+    })),
+    enemies: [...room.enemies.values()].map((e) => ({
+      id: e.id,
+      pos: { x: e.pos.x, y: e.pos.y },
+      vel: { x: e.vel.x, y: e.vel.y },
+    })),
     obstacles: room.obstacles.map((o) => ({ ...o })),
     arena: { ...room.arena },
     roomCode: room.code,
@@ -180,26 +253,47 @@ export function buildDisplaySnapshot(room: Room): DisplaySnapshot {
     quadrantHp: { ...room.quadrantHp },
     shieldQuadrant: room.shieldQuadrant,
     attackQuadrant: room.attackQuadrant,
-    bombs: room.bombs.map((b) => ({ id: b.id, pos: { x: b.pos.x, y: b.pos.y }, fuseMsRemaining: b.fuseMsRemaining, radius: b.radius })),
-    attacks: room.attacks.map((a) => ({ ...a, pos: a.pos ? { x: a.pos.x, y: a.pos.y } : undefined })),
+    bombs: room.bombs.map((b) => ({
+      id: b.id,
+      pos: { x: b.pos.x, y: b.pos.y },
+      fuseMsRemaining: b.fuseMsRemaining,
+      radius: b.radius,
+    })),
+    attacks: room.attacks.map((a) => ({
+      ...a,
+      pos: a.pos ? { x: a.pos.x, y: a.pos.y } : undefined,
+    })),
     roleClaims: roleClaims(room),
   };
 }
 
-export function buildPhoneSnapshot(room: Room, playerId: string): PhoneSnapshot {
-  const occupancy: Record<Role, Mode | null> = { defense: null, repair: null, weapons: null };
+export function buildPhoneSnapshot(
+  room: Room,
+  playerId: string,
+): PhoneSnapshot {
+  const occupancy: Record<Role, Mode | null> = {
+    defense: null,
+    repair: null,
+    weapons: null,
+  };
   for (const p of room.players.values()) {
     if (p.connected && p.role) occupancy[p.role] = p.mode;
   }
   const me = room.players.get(playerId)!;
   const allOffered = offeredCores(room);
-  const weaponSelectedCores = me.weaponSelectedCores.filter((type) => allOffered.includes(type));
+  const weaponSelectedCores = me.weaponSelectedCores.filter((type) =>
+    allOffered.includes(type),
+  );
   return {
+    roomCode: room.code,
+    sequence: room.sequence,
+    serverTime: Date.now(),
     phase: room.phase,
     role: me.role,
     mode: me.mode,
     occupancy,
-    nearRobot: me.mode === 'on_foot' ? isNearRobot(me.pos, room.robot, TILE) : true,
+    nearRobot:
+      me.mode === "on_foot" ? isNearRobot(me.pos, room.robot, TILE) : true,
     playerCount: connectedPlayerCount(room),
     roleClaims: roleClaims(room),
     inventory: me.inventory.slice(),

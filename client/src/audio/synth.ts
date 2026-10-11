@@ -7,7 +7,9 @@
 // src/audio/sfx.ts — no call site changes.
 
 export function tone(
-  ctx: AudioContext, out: AudioNode, t0: number,
+  ctx: AudioContext,
+  out: AudioNode,
+  t0: number,
   opts: {
     freq: number;
     durMs: number;
@@ -30,18 +32,34 @@ export function tone(
   g.connect(out);
 
   const osc = ctx.createOscillator();
-  osc.type = opts.type ?? 'square';
+  osc.type = opts.type ?? "sine";
   osc.frequency.setValueAtTime(opts.freq, t0);
   if (opts.detune) osc.detune.setValueAtTime(opts.detune, t0);
-  if (opts.sweepTo) osc.frequency.exponentialRampToValueAtTime(Math.max(1, opts.sweepTo), t0 + dur);
+  if (opts.sweepTo)
+    osc.frequency.exponentialRampToValueAtTime(
+      Math.max(1, opts.sweepTo),
+      t0 + dur,
+    );
   osc.connect(g);
   osc.start(t0);
   osc.stop(t0 + dur + 0.02);
+  osc.onended = () => {
+    osc.disconnect();
+    g.disconnect();
+  };
 }
 
 export function noise(
-  ctx: AudioContext, out: AudioNode, t0: number,
-  opts: { durMs: number; gain?: number; lowpass?: number; attackMs?: number; releaseMs?: number },
+  ctx: AudioContext,
+  out: AudioNode,
+  t0: number,
+  opts: {
+    durMs: number;
+    gain?: number;
+    lowpass?: number;
+    attackMs?: number;
+    releaseMs?: number;
+  },
 ): void {
   const dur = opts.durMs / 1000;
   const attack = (opts.attackMs ?? 2) / 1000;
@@ -62,7 +80,7 @@ export function noise(
   let last: AudioNode = src;
   if (opts.lowpass) {
     const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass';
+    lp.type = "lowpass";
     lp.frequency.value = opts.lowpass;
     last.connect(lp);
     last = lp;
@@ -71,24 +89,106 @@ export function noise(
   g.connect(out);
   src.start(t0);
   src.stop(t0 + dur + 0.02);
+  src.onended = () => {
+    src.disconnect();
+    last.disconnect();
+    g.disconnect();
+  };
 }
 
 // Short percussive "kick" — body sine + click noise.
-export function kick(ctx: AudioContext, out: AudioNode, t0: number, gain = 0.6): void {
-  tone(ctx, out, t0, { freq: 110, sweepTo: 35, durMs: 220, type: 'sine', gain, attackMs: 1, releaseMs: 180 });
-  noise(ctx, out, t0, { durMs: 40, gain: gain * 0.25, lowpass: 3000, attackMs: 1, releaseMs: 30 });
+export function kick(
+  ctx: AudioContext,
+  out: AudioNode,
+  t0: number,
+  gain = 0.6,
+): void {
+  tone(ctx, out, t0, {
+    freq: 110,
+    sweepTo: 35,
+    durMs: 220,
+    type: "sine",
+    gain,
+    attackMs: 1,
+    releaseMs: 180,
+  });
+  noise(ctx, out, t0, {
+    durMs: 40,
+    gain: gain * 0.25,
+    lowpass: 3000,
+    attackMs: 1,
+    releaseMs: 30,
+  });
 }
 
 // Two-tone arpeggio for UI affirmations.
 export function chord(
-  ctx: AudioContext, out: AudioNode, t0: number,
-  freqs: number[], opts: { durMs: number; gain?: number; type?: OscillatorType; spacingMs?: number } = { durMs: 220 },
+  ctx: AudioContext,
+  out: AudioNode,
+  t0: number,
+  freqs: number[],
+  opts: {
+    durMs: number;
+    gain?: number;
+    type?: OscillatorType;
+    spacingMs?: number;
+  } = { durMs: 220 },
 ): void {
   const space = (opts.spacingMs ?? 0) / 1000;
   freqs.forEach((f, i) => {
     tone(ctx, out, t0 + i * space, {
-      freq: f, durMs: opts.durMs, gain: (opts.gain ?? 0.25) / Math.sqrt(freqs.length),
-      type: opts.type ?? 'triangle', attackMs: 4, releaseMs: 120,
+      freq: f,
+      durMs: opts.durMs,
+      gain: (opts.gain ?? 0.25) / Math.sqrt(freqs.length),
+      type: opts.type ?? "triangle",
+      attackMs: 4,
+      releaseMs: 120,
     });
   });
+}
+
+// Soft, slightly inharmonic electric-key partials. Slow pads and plucked notes
+// share a timbre, with no buzzy square-wave harmonics or piercing high ticks.
+export function keys(
+  ctx: AudioContext,
+  out: AudioNode,
+  t0: number,
+  opts: {
+    freq: number;
+    durMs: number;
+    gain: number;
+    pad?: boolean;
+    bass?: boolean;
+  },
+): void {
+  const partials = opts.bass
+    ? [
+        [1, 1],
+        [2, 0.13],
+      ]
+    : opts.pad
+      ? [
+          [1, 1],
+          [2.002, 0.13],
+          [3, 0.035],
+        ]
+      : [
+          [1, 1],
+          [2.002, 0.22],
+          [3.01, 0.07],
+          [4, 0.018],
+        ];
+  for (const [ratio, level] of partials)
+    tone(ctx, out, t0, {
+      freq: opts.freq * ratio!,
+      durMs: opts.durMs * (ratio === 1 ? 1 : 0.7),
+      type: "sine",
+      gain: opts.gain * level!,
+      attackMs: opts.pad ? 250 : opts.bass ? 18 : 9,
+      releaseMs: opts.pad
+        ? 850
+        : opts.bass
+          ? 180
+          : Math.min(350, opts.durMs * 0.65),
+    });
 }

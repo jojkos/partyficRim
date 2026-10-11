@@ -1,86 +1,151 @@
-// Sound registry. Each entry is a "voice" — a function that schedules nodes
-// for one playback. Names are stable contract; implementations are placeholder
-// synthesis today but can be swapped to AudioBuffer playback (real samples)
-// later without touching any caller.
-
-import { chord, kick, noise, tone } from './synth.js';
-import type { VoiceFn } from './engine.js';
-
+import { chord, keys, noise, tone } from "./synth.js";
+import type { VoiceFn } from "./engine.js";
 export const SFX = {
-  // --- UI -------------------------------------------------------------------
-  'ui.tap': (ctx, out, t) => tone(ctx, out, t, {
-    freq: 880, durMs: 60, type: 'square', gain: 0.18, attackMs: 1, releaseMs: 50,
-  }),
-  'ui.role_claim': (ctx, out, t) => chord(ctx, out, t, [523, 659, 784], {
-    durMs: 260, gain: 0.35, type: 'triangle', spacingMs: 35,
-  }),
-  'ui.start_press': (ctx, out, t) => {
-    chord(ctx, out, t, [440, 660], { durMs: 220, gain: 0.4, type: 'square', spacingMs: 50 });
-    kick(ctx, out, t + 0.02, 0.4);
+  "ui.tap": (c, o, t) => keys(c, o, t, { freq: 460, durMs: 95, gain: 0.1 }),
+  "ui.role_claim": (c, o, t) => {
+    keys(c, o, t, { freq: 293.66, durMs: 240, gain: 0.11 });
+    keys(c, o, t + 0.08, { freq: 440, durMs: 330, gain: 0.08 });
   },
-  'ui.leave': (ctx, out, t) => tone(ctx, out, t, {
-    freq: 520, sweepTo: 220, durMs: 240, type: 'triangle', gain: 0.25, releaseMs: 200,
-  }),
-  'ui.error': (ctx, out, t) => {
-    tone(ctx, out, t, { freq: 220, durMs: 90, type: 'square', gain: 0.35, releaseMs: 70 });
-    tone(ctx, out, t + 0.1, { freq: 180, durMs: 140, type: 'square', gain: 0.35, releaseMs: 110 });
+  "ui.start_press": (c, o, t) =>
+    chord(c, o, t, [293.66, 369.99, 440], {
+      durMs: 320,
+      gain: 0.15,
+      type: "sine",
+      spacingMs: 45,
+    }),
+  "ui.leave": (c, o, t) =>
+    keys(c, o, t, { freq: 293.66, durMs: 190, gain: 0.085 }),
+  "ui.error": (c, o, t) => {
+    keys(c, o, t, { freq: 220, durMs: 170, gain: 0.11 });
+    keys(c, o, t + 0.12, { freq: 196, durMs: 220, gain: 0.08 });
   },
-
-  // --- Game flow ------------------------------------------------------------
-  'game.countdown_tick': (ctx, out, t) => tone(ctx, out, t, {
-    freq: 660, durMs: 90, type: 'square', gain: 0.4, attackMs: 1, releaseMs: 70,
-  }),
-  'game.start': (ctx, out, t) => {
-    chord(ctx, out, t, [440, 554, 659, 880], { durMs: 420, gain: 0.5, type: 'sawtooth', spacingMs: 45 });
-    kick(ctx, out, t, 0.8);
+  "game.countdown_tick": (c, o, t) =>
+    keys(c, o, t, { freq: 440, durMs: 170, gain: 0.15 }),
+  "game.start": (c, o, t) => {
+    [293.66, 369.99, 440, 587.33].forEach((f, i) =>
+      keys(c, o, t + i * 0.07, { freq: f, durMs: 440, gain: 0.11 }),
+    );
+    tone(c, o, t, {
+      freq: 90,
+      sweepTo: 45,
+      durMs: 230,
+      gain: 0.13,
+      type: "sine",
+      releaseMs: 210,
+    });
   },
-  'game.over': (ctx, out, t) => {
-    chord(ctx, out, t, [392, 311, 233], { durMs: 700, gain: 0.45, type: 'sawtooth', spacingMs: 110 });
-    noise(ctx, out, t + 0.2, { durMs: 600, gain: 0.2, lowpass: 1200, releaseMs: 400 });
+  "game.over": (c, o, t) => {
+    [440, 369.99, 293.66].forEach((f, i) =>
+      keys(c, o, t + i * 0.14, { freq: f, durMs: 600, gain: 0.12 }),
+    );
   },
-
-  // --- Combat: attacks ------------------------------------------------------
-  'attack.melee': (ctx, out, t) => {
-    noise(ctx, out, t, { durMs: 120, gain: 0.5, lowpass: 4500, attackMs: 1, releaseMs: 90 });
-    tone(ctx, out, t, { freq: 280, sweepTo: 90, durMs: 130, type: 'square', gain: 0.3, releaseMs: 100 });
+  "attack.melee": (c, o, t) => {
+    noise(c, o, t, {
+      durMs: 150,
+      gain: 0.16,
+      lowpass: 2100,
+      attackMs: 15,
+      releaseMs: 110,
+    });
+    tone(c, o, t, {
+      freq: 140,
+      sweepTo: 70,
+      durMs: 160,
+      type: "sine",
+      gain: 0.11,
+      attackMs: 5,
+      releaseMs: 135,
+    });
   },
-  'attack.rotary': (ctx, out, t) => {
-    // Buzzy stutter — three quick clicks
+  "attack.rotary": (c, o, t) => {
     for (let i = 0; i < 3; i++) {
-      tone(ctx, out, t + i * 0.04, {
-        freq: 520 + i * 60, durMs: 70, type: 'square', gain: 0.25, releaseMs: 50,
+      noise(c, o, t + i * 0.045, {
+        durMs: 50,
+        gain: 0.1,
+        lowpass: 1400,
+        attackMs: 3,
+        releaseMs: 40,
+      });
+      tone(c, o, t + i * 0.045, {
+        freq: 150,
+        durMs: 65,
+        type: "sine",
+        gain: 0.045,
+        releaseMs: 55,
       });
     }
   },
-  'attack.laser': (ctx, out, t) => tone(ctx, out, t, {
-    freq: 1800, sweepTo: 600, durMs: 280, type: 'sawtooth', gain: 0.32, attackMs: 2, releaseMs: 180,
-  }),
-  'attack.bomb': (ctx, out, t) => {
-    tone(ctx, out, t, { freq: 90, sweepTo: 30, durMs: 480, type: 'sine', gain: 0.55, releaseMs: 400 });
-    noise(ctx, out, t, { durMs: 500, gain: 0.4, lowpass: 1800, releaseMs: 420 });
+  "attack.laser": (c, o, t) => {
+    tone(c, o, t, {
+      freq: 760,
+      sweepTo: 240,
+      durMs: 240,
+      type: "sine",
+      gain: 0.15,
+      attackMs: 12,
+      releaseMs: 210,
+    });
+    noise(c, o, t, { durMs: 150, gain: 0.04, lowpass: 1100, releaseMs: 135 });
   },
-  'attack.bomb_armed': (ctx, out, t) => {
-    tone(ctx, out, t, { freq: 1200, durMs: 70, type: 'square', gain: 0.3 });
-    tone(ctx, out, t + 0.18, { freq: 1200, durMs: 70, type: 'square', gain: 0.3 });
+  "attack.bomb": (c, o, t) => {
+    tone(c, o, t, {
+      freq: 76,
+      sweepTo: 34,
+      durMs: 440,
+      type: "sine",
+      gain: 0.21,
+      attackMs: 8,
+      releaseMs: 380,
+    });
+    noise(c, o, t, {
+      durMs: 420,
+      gain: 0.15,
+      lowpass: 850,
+      attackMs: 12,
+      releaseMs: 380,
+    });
   },
-
-  // --- Combat: feedback -----------------------------------------------------
-  'damage.light': (ctx, out, t) => noise(ctx, out, t, {
-    durMs: 140, gain: 0.3, lowpass: 2200, releaseMs: 120,
-  }),
-  'damage.heavy': (ctx, out, t) => {
-    noise(ctx, out, t, { durMs: 320, gain: 0.55, lowpass: 1500, releaseMs: 260 });
-    tone(ctx, out, t, { freq: 160, sweepTo: 60, durMs: 280, type: 'sawtooth', gain: 0.35, releaseMs: 220 });
+  "attack.bomb_armed": (c, o, t) =>
+    keys(c, o, t, { freq: 349.23, durMs: 170, gain: 0.09 }),
+  "damage.light": (c, o, t) =>
+    noise(c, o, t, {
+      durMs: 130,
+      gain: 0.11,
+      lowpass: 1250,
+      attackMs: 6,
+      releaseMs: 110,
+    }),
+  "damage.heavy": (c, o, t) => {
+    noise(c, o, t, {
+      durMs: 220,
+      gain: 0.16,
+      lowpass: 900,
+      attackMs: 7,
+      releaseMs: 190,
+    });
+    tone(c, o, t, {
+      freq: 100,
+      sweepTo: 58,
+      durMs: 200,
+      type: "sine",
+      gain: 0.13,
+      attackMs: 6,
+      releaseMs: 175,
+    });
   },
-  'core.spawn': (ctx, out, t) => chord(ctx, out, t, [880, 1320], {
-    durMs: 200, gain: 0.18, type: 'triangle', spacingMs: 25,
-  }),
-  'enemy.spawn': (ctx, out, t) => tone(ctx, out, t, {
-    freq: 180, sweepTo: 320, durMs: 220, type: 'sawtooth', gain: 0.2, releaseMs: 180,
-  }),
-  'repair.tick': (ctx, out, t) => chord(ctx, out, t, [660, 990], {
-    durMs: 180, gain: 0.22, type: 'triangle', spacingMs: 20,
-  }),
+  "core.spawn": (c, o, t) =>
+    keys(c, o, t, { freq: 587.33, durMs: 280, gain: 0.045 }),
+  "enemy.spawn": (c, o, t) =>
+    noise(c, o, t, {
+      durMs: 120,
+      gain: 0.025,
+      lowpass: 600,
+      attackMs: 35,
+      releaseMs: 80,
+    }),
+  "repair.tick": (c, o, t) => {
+    keys(c, o, t, { freq: 349.23, durMs: 190, gain: 0.1 });
+    keys(c, o, t + 0.055, { freq: 523.25, durMs: 240, gain: 0.065 });
+  },
 } satisfies Record<string, VoiceFn>;
-
 export type SfxName = keyof typeof SFX;

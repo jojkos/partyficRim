@@ -1,43 +1,99 @@
-// Small floating audio toggle. Click to mute master. Long-press / Shift-click
-// to also reset volumes to defaults. Visually unobtrusive — fits the existing
-// theme's hand-drawn bevel style.
-
-import { useEffect, useState, type CSSProperties } from 'react';
-import { audio } from './engine.js';
-import { PR } from '../ui/theme.js';
-
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { audio } from "./engine.js";
 interface Props {
   style?: CSSProperties;
   size?: number;
+  upward?: boolean;
 }
-
-export function MuteButton({ style, size = 38 }: Props) {
-  const [, force] = useState(0);
-  useEffect(() => audio.subscribe(() => force((x) => x + 1)), []);
-  const muted = audio.isMuted('master');
-
+export function MuteButton({ style, size = 44, upward = false }: Props) {
+  const [, update] = useState(0),
+    [open, setOpen] = useState(false),
+    wrap = useRef<HTMLDivElement>(null);
+  useEffect(() => audio.subscribe(() => update((n) => n + 1)), []);
+  useEffect(() => {
+    if (!open) return;
+    const outside = (e: PointerEvent) => {
+      if (!wrap.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const escape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [open]);
+  const muted = audio.isMuted("master");
   return (
-    <button
-      onClick={() => {
-        audio.setMuted('master', !muted);
-        if (muted) audio.play('ui.tap'); // we just turned it on — give feedback
-      }}
-      aria-label={muted ? 'Unmute' : 'Mute'}
-      title={muted ? 'Unmute' : 'Mute'}
-      style={{
-        width: size, height: size,
-        display: 'grid', placeItems: 'center',
-        background: muted ? 'rgba(255,255,255,0.04)' : PR.color.panel,
-        color: muted ? '#888' : PR.color.paper,
-        border: `2px solid ${muted ? '#444' : PR.color.paper}55`,
-        borderRadius: 999,
-        font: `400 18px ${PR.font.display}`,
-        cursor: 'pointer',
-        padding: 0,
-        ...style,
-      }}
-    >
-      {muted ? '🔇' : '🔊'}
-    </button>
+    <div ref={wrap} className="audio-wrap" style={style}>
+      <button
+        className="audio-toggle"
+        style={{ width: size, height: size, minHeight: size, minWidth: size }}
+        aria-label="Audio settings"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <svg
+          width="21"
+          height="21"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="m11 4-6 5H2v6h3l6 5Z" />
+          {muted ? (
+            <path d="m16 9 6 6m0-6-6 6" />
+          ) : (
+            <>
+              <path d="M15 8q4 4 0 8M18 4q8 8 0 16" />
+            </>
+          )}
+        </svg>
+      </button>
+      {open && (
+        <section
+          className={`audio-panel ${upward ? "down-up" : ""}`}
+          aria-label="Audio settings"
+        >
+          <b>Set the mood</b>
+          {(["music", "sfx"] as const).map((bus) => (
+            <label key={bus}>
+              {bus === "music" ? "Music" : "Sound effects"}
+              <span>{Math.round(audio.getVolume(bus) * 100)}%</span>
+              <input
+                aria-label={
+                  bus === "music" ? "Music volume" : "Sound effects volume"
+                }
+                type="range"
+                min="0"
+                max="1"
+                step=".01"
+                value={audio.getVolume(bus)}
+                onChange={(e) => {
+                  audio.setMuted(bus, false);
+                  audio.setVolume(bus, Number(e.target.value));
+                  if (bus === "sfx") {
+                    audio.setMuted("ui", false);
+                    audio.setVolume("ui", Number(e.target.value) * 0.77);
+                  }
+                }}
+              />
+            </label>
+          ))}
+          <button
+            className="quiet-button"
+            onClick={() => audio.setMuted("master", !muted)}
+          >
+            {muted ? "Turn audio on" : "Mute all audio"}
+          </button>
+        </section>
+      )}
+    </div>
   );
 }

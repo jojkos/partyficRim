@@ -1,32 +1,40 @@
-import type { Server, Socket } from 'socket.io';
+import type { Server, Socket } from "socket.io";
 import type {
   CoreType,
   ClientToServerEvents,
   ServerToClientEvents,
   Role,
   Quadrant,
-} from '@partyficrim/shared';
-import type { RoomManager, Room } from '../game/rooms.js';
-import { playerForRole, pushFeed, roleClaims } from '../game/rooms.js';
-import { requestStart } from '../game/tick.js';
-import { fireAttack, repairQuadrant } from '../game/attacks.js';
-import { offeredCores } from '../game/cores.js';
-import { log } from '../log.js';
-import { randomUUID } from 'node:crypto';
+} from "@partyficrim/shared";
+import type { RoomManager, Room } from "../game/rooms.js";
+import { playerForRole, pushFeed, roleClaims } from "../game/rooms.js";
+import { requestStart } from "../game/tick.js";
+import { fireAttack, repairQuadrant } from "../game/attacks.js";
+import { offeredCores } from "../game/cores.js";
+import { log } from "../log.js";
+import { randomUUID } from "node:crypto";
+import { packetSchemas, requiredAckEvents, ackEvents } from "./validation.js";
 
 type IO = Server<ClientToServerEvents, ServerToClientEvents>;
 type S = Socket<ClientToServerEvents, ServerToClientEvents>;
 
-export const socketByPlayerId = new Map<string, S>();
+type Registry = Map<string, S>;
 
-function roleIsClaimed(room: Room, role: Role, exceptPlayerId?: string): boolean {
+function roleIsClaimed(
+  room: Room,
+  role: Role,
+  exceptPlayerId?: string,
+): boolean {
   for (const p of room.players.values()) {
     if (p.id !== exceptPlayerId && p.connected && p.role === role) return true;
   }
   return false;
 }
 
-function pruneDisconnectedUnclaimed(room: Room): void {
+function pruneDisconnectedUnclaimed(
+  room: Room,
+  socketByPlayerId: Registry,
+): void {
   for (const [id, p] of room.players) {
     if (!p.connected && p.role === null) {
       room.players.delete(id);
@@ -45,16 +53,16 @@ function connectedCount(room: Room): number {
 // first (cheap). If a slot is still needed, evict the oldest disconnected
 // role-holder (their session is dead anyway — sessionId resume is checked
 // before this fn runs).
-function evictForNewJoiner(room: Room): void {
-  pruneDisconnectedUnclaimed(room);
+function evictForNewJoiner(room: Room, socketByPlayerId: Registry): void {
+  pruneDisconnectedUnclaimed(room, socketByPlayerId);
   if (connectedCount(room) >= 3) return; // not a slot problem
   // If total records cap the slot logic, drop oldest disconnected role-holder.
   // We track disconnect time implicitly by insertion order — Map preserves it,
   // and we don't reinsert on reconnect, so iteration order ≈ join order.
   for (const [id, p] of room.players) {
     if (!p.connected) {
-      if (p.role === 'defense') room.shieldQuadrant = null;
-      if (p.role === 'weapons') room.attackQuadrant = null;
+      if (p.role === "defense") room.shieldQuadrant = null;
+      if (p.role === "weapons") room.attackQuadrant = null;
       room.players.delete(id);
       socketByPlayerId.delete(id);
       break;
@@ -64,29 +72,42 @@ function evictForNewJoiner(room: Room): void {
 
 function cleanWeaponCoreSelection(room: Room): void {
   const available = new Set(offeredCores(room));
-  const weapons = playerForRole(room, 'weapons');
+  const weapons = playerForRole(room, "weapons");
   if (!weapons) return;
-  weapons.weaponSelectedCores = weapons.weaponSelectedCores.filter((type) => available.has(type));
+  weapons.weaponSelectedCores = weapons.weaponSelectedCores.filter((type) =>
+    available.has(type),
+  );
 }
 
-function removePhoneFromRoom(socket: S, mgr: RoomManager): boolean {
-  const data = socket.data as { roomCode?: string; playerId?: string } | undefined;
+function removePhoneFromRoom(
+  socket: S,
+  mgr: RoomManager,
+  socketByPlayerId: Registry,
+): boolean {
+  const data = socket.data as
+    { roomCode?: string; playerId?: string } | undefined;
   if (!data?.roomCode || !data?.playerId) return false;
   const room = mgr.getRoom(data.roomCode);
   const p = room?.players.get(data.playerId);
   if (room && p) {
     const oldRole = p.role;
     room.players.delete(data.playerId);
-    if (oldRole === 'defense') room.shieldQuadrant = null;
-    if (oldRole === 'weapons') room.attackQuadrant = null;
-    if (room.phase === 'countdown') {
-      room.phase = 'lobby';
+    if (oldRole === "defense") room.shieldQuadrant = null;
+    if (oldRole === "weapons") room.attackQuadrant = null;
+    if (room.phase === "countdown") {
+      room.phase = "lobby";
       room.countdownMsRemaining = 0;
-    } else if (room.phase === 'playing') {
-      room.phase = 'paused';
+    } else if (room.phase === "playing") {
+      room.pauseStartedAt = Date.now();
+      room.phase = "paused";
     }
     cleanWeaponCoreSelection(room);
-    pushFeed(room, { ts: Date.now(), role: oldRole, kind: 'role', detail: 'left room' });
+    pushFeed(room, {
+      ts: Date.now(),
+      role: oldRole,
+      kind: "role",
+      detail: "left room",
+    });
   }
   socketByPlayerId.delete(data.playerId);
   socket.leave(`room:${data.roomCode}:phones`);
@@ -94,28 +115,9 @@ function removePhoneFromRoom(socket: S, mgr: RoomManager): boolean {
   return true;
 }
 
-function restartRoom(io: IO, mgr: RoomManager, oldCode: string): { ok: boolean; newRoomCode?: string; error?: string } {
-  const oldRoom = mgr.getRoom(oldCode);
-  if (!oldRoom) return { ok: false, error: 'no_such_room' };
-
-  const room = mgr.createRoom();
-  io.to(`room:${oldCode}:phones`).emit('room:ended');
-  io.to(`room:${oldCode}:display`).emit('display:room_restarted', { newRoomCode: room.code });
-  for (const [pid, s] of socketByPlayerId) {
-    const sd = s.data as { roomCode?: string } | undefined;
-    if (sd?.roomCode === oldCode) {
-      socketByPlayerId.delete(pid);
-      s.data = {};
-      s.leave(`room:${oldCode}:phones`);
-    }
-  }
-  mgr.removeRoom(oldCode);
-  log('room', `${oldCode} restarted -> ${room.code}`);
-  return { ok: true, newRoomCode: room.code };
-}
-
 function resetRoomInPlace(room: Room): void {
-  room.phase = 'lobby';
+  room.phase = "lobby";
+  room.elapsedMs = 0;
   room.countdownMsRemaining = 0;
   room.robot = { x: 400, y: 300 };
   room.cores.clear();
@@ -130,7 +132,7 @@ function resetRoomInPlace(room: Room): void {
   room.lastEnemyContactDamageAt = 0;
   room.eventFeed = [];
   for (const p of room.players.values()) {
-    p.mode = 'in_robot';
+    p.mode = "in_robot";
     p.pos = { x: room.robot.x, y: room.robot.y };
     p.lastInput = { x: 0, y: 0 };
     p.lastButtonAt = 0;
@@ -143,31 +145,64 @@ function resetRoomInPlace(room: Room): void {
 }
 
 export function registerHandlers(io: IO, mgr: RoomManager) {
-  io.on('connection', (socket: S) => {
-    log('net', `connect ${socket.id}`);
+  const socketByPlayerId: Registry = new Map();
+  io.on("connection", (socket: S) => {
+    log("net", `connect ${socket.id}`);
+    // Invalid packets are rejected by middleware, never allowed to crash Node.
+    socket.on("error", () => {});
+    let windowAt = Date.now(),
+      packetCount = 0;
+    socket.use(([event, ...args], next) => {
+      const now = Date.now();
+      if (now - windowAt >= 1000) {
+        windowAt = now;
+        packetCount = 0;
+      }
+      const ack = typeof args.at(-1) === "function" ? args.at(-1) : null;
+      const schema = packetSchemas[event];
+      const payloadCount = schema ? 1 : 0;
+      const validCallback =
+        !ackEvents.has(event) ||
+        (args.length <= payloadCount + 1 &&
+          (args.length === payloadCount ||
+            typeof args[payloadCount] === "function"));
+      if (
+        ++packetCount > 150 ||
+        !validCallback ||
+        (schema && !schema.safeParse(args[0]).success) ||
+        (requiredAckEvents.has(event) && !ack)
+      ) {
+        ack?.({ ok: false, error: "invalid_payload" });
+        return next(new Error("invalid_payload"));
+      }
+      next();
+    });
 
-    socket.on('display:create_room', (cb) => {
-      const existing = (socket.data as { displayRoomCode?: string } | undefined)?.displayRoomCode;
+    socket.on("display:create_room", (cb) => {
+      const existing = (socket.data as { displayRoomCode?: string } | undefined)
+        ?.displayRoomCode;
       if (existing && mgr.getRoom(existing)) {
-        log('room', `${existing} create_room idempotent (socket=${socket.id})`);
-        cb({ roomCode: existing });
+        log("room", `${existing} create_room idempotent (socket=${socket.id})`);
+        cb({ roomCode: existing, hostToken: mgr.getRoom(existing)!.hostToken });
         return;
       }
       const room = mgr.createRoom();
+      room.displaySockets.add(socket.id);
+      room.lastOccupiedAt = Date.now();
       socket.join(`room:${room.code}:display`);
       socket.data = { ...(socket.data ?? {}), displayRoomCode: room.code };
-      log('room', `${room.code} created (socket=${socket.id})`);
-      cb({ roomCode: room.code });
+      log("room", `${room.code} created (socket=${socket.id})`);
+      cb({ roomCode: room.code, hostToken: room.hostToken });
     });
 
-    socket.on('display:end_room', (cb) => {
+    socket.on("display:end_room", (cb) => {
       const data = socket.data as { displayRoomCode?: string } | undefined;
       const oldCode = data?.displayRoomCode;
 
       if (oldCode) {
         const oldRoom = mgr.getRoom(oldCode);
         if (oldRoom) {
-          io.to(`room:${oldCode}:phones`).emit('room:ended');
+          io.to(`room:${oldCode}:phones`).emit("room:ended");
           for (const [pid, s] of socketByPlayerId) {
             const sd = s.data as { roomCode?: string } | undefined;
             if (sd?.roomCode === oldCode) {
@@ -179,59 +214,76 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
           mgr.removeRoom(oldCode);
         }
         socket.leave(`room:${oldCode}:display`);
-        log('room', `${oldCode} ended by display`);
+        log("room", `${oldCode} ended by display`);
       }
 
       const room = mgr.createRoom();
+      room.displaySockets.add(socket.id);
+      room.lastOccupiedAt = Date.now();
       socket.join(`room:${room.code}:display`);
       socket.data = { ...(socket.data ?? {}), displayRoomCode: room.code };
-      log('room', `${room.code} created (replacement for ${oldCode ?? 'none'})`);
-      cb({ newRoomCode: room.code });
+      log(
+        "room",
+        `${room.code} created (replacement for ${oldCode ?? "none"})`,
+      );
+      cb({ newRoomCode: room.code, hostToken: room.hostToken });
     });
 
-    socket.on('client:restart_room', (cb) => {
-      const data = socket.data as { roomCode?: string; displayRoomCode?: string } | undefined;
+    socket.on("client:restart_room", (cb) => {
+      const data = socket.data as
+        { roomCode?: string; displayRoomCode?: string } | undefined;
       const code = data?.roomCode ?? data?.displayRoomCode;
-      if (!code) return cb?.({ ok: false, error: 'no_room' });
+      if (!code) return cb?.({ ok: false, error: "no_room" });
       const room = mgr.getRoom(code);
-      if (!room) return cb?.({ ok: false, error: 'no_such_room' });
+      if (!room) return cb?.({ ok: false, error: "no_such_room" });
       resetRoomInPlace(room);
       cb?.({ ok: true, newRoomCode: code });
     });
 
-    socket.on('display:join_room', ({ roomCode }, cb) => {
+    socket.on("display:join_room", ({ roomCode, hostToken }, cb) => {
       const room = mgr.getRoom(roomCode);
       if (!room) {
-        log('room', `${roomCode} display join refused: no_such_room`);
-        return cb({ ok: false, error: 'no_such_room' });
+        log("room", `${roomCode} display join refused: no_such_room`);
+        return cb({ ok: false, error: "no_such_room" });
       }
+
+      if (hostToken !== room.hostToken)
+        return cb({ ok: false, error: "host_only" });
 
       // Leave any previous display channel + remember the new code so end_room
       // can find and tear down THIS room later.
-      const prev = (socket.data as { displayRoomCode?: string } | undefined)?.displayRoomCode;
+      const prev = (socket.data as { displayRoomCode?: string } | undefined)
+        ?.displayRoomCode;
       if (prev && prev !== room.code) {
+        mgr.getRoom(prev)?.displaySockets.delete(socket.id);
         socket.leave(`room:${prev}:display`);
-        log('room', `${prev} display channel left during join_room`);
+        log("room", `${prev} display channel left during join_room`);
       }
 
+      room.displaySockets.add(socket.id);
+      room.lastOccupiedAt = Date.now();
       socket.join(`room:${room.code}:display`);
       socket.data = { ...(socket.data ?? {}), displayRoomCode: room.code };
-      log('room', `${roomCode} display joined`);
+      log("room", `${roomCode} display joined`);
       cb({ ok: true });
     });
 
-    socket.on('phone:join', ({ roomCode, sessionId }, cb) => {
+    socket.on("phone:join", ({ roomCode, sessionId }, cb) => {
       const room = mgr.getRoom(roomCode);
       if (!room) {
-        log('room', `${roomCode} phone join refused: no_such_room (socket=${socket.id})`);
-        return cb({ ok: false, error: 'no_such_room' });
+        log(
+          "room",
+          `${roomCode} phone join refused: no_such_room (socket=${socket.id})`,
+        );
+        return cb({ ok: false, error: "no_such_room" });
       }
 
       // If this socket is currently bound to a player in a DIFFERENT room,
       // clean that record up so the user doesn't leave a ghost behind.
-      const sd = socket.data as { roomCode?: string; playerId?: string } | undefined;
+      const sd = socket.data as
+        { roomCode?: string; playerId?: string } | undefined;
       if (sd?.roomCode && sd.roomCode !== roomCode && sd.playerId) {
-        removePhoneFromRoom(socket, mgr);
+        removePhoneFromRoom(socket, mgr, socketByPlayerId);
       }
 
       // Idempotency for StrictMode double-fire and accidental re-joins:
@@ -243,8 +295,15 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
           existing.connected = true;
           socketByPlayerId.set(existing.id, socket);
           socket.join(`room:${room.code}:phones`);
-          log('room', `${roomCode} phone join idempotent (socket=${socket.id})`);
-          return cb({ ok: true, role: existing.role, sessionId: existing.sessionId });
+          log(
+            "room",
+            `${roomCode} phone join idempotent (socket=${socket.id})`,
+          );
+          return cb({
+            ok: true,
+            role: existing.role,
+            sessionId: existing.sessionId,
+          });
         }
       }
 
@@ -256,15 +315,23 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
             // tear that mapping down so we don't double-emit snapshots.
             const prevSocket = socketByPlayerId.get(p.id);
             if (prevSocket && prevSocket.id !== socket.id) {
-              const psd = prevSocket.data as { roomCode?: string; playerId?: string } | undefined;
+              const psd = prevSocket.data as
+                { roomCode?: string; playerId?: string } | undefined;
               if (psd?.playerId === p.id) prevSocket.data = {};
+              prevSocket.emit("phone:session_replaced");
               prevSocket.leave(`room:${room.code}:phones`);
             }
+            p.lastInput = { x: 0, y: 0 };
+            p.lastInputAt = Date.now();
+            p.lastButtonAt = 0;
             p.connected = true;
             socket.data = { roomCode, playerId: p.id };
             socket.join(`room:${room.code}:phones`);
             socketByPlayerId.set(p.id, socket);
-            log('room', `${roomCode} phone resume role=${p.role} (socket=${socket.id})`);
+            log(
+              "room",
+              `${roomCode} phone resume role=${p.role} (socket=${socket.id})`,
+            );
             return cb({ ok: true, role: p.role, sessionId });
           }
         }
@@ -273,11 +340,14 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
       // Cap by *connected* players, not total records. Ghosts (disconnected,
       // role-holding) don't block fresh joiners — they get evicted to make room.
       if (connectedCount(room) >= 3) {
-        log('room', `${roomCode} phone join refused: room_full (socket=${socket.id})`);
-        return cb({ ok: false, error: 'room_full' });
+        log(
+          "room",
+          `${roomCode} phone join refused: room_full (socket=${socket.id})`,
+        );
+        return cb({ ok: false, error: "room_full" });
       }
 
-      evictForNewJoiner(room);
+      evictForNewJoiner(room, socketByPlayerId);
 
       const newSessionId = randomUUID();
       const id = randomUUID();
@@ -285,10 +355,11 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
         id,
         sessionId: newSessionId,
         role: null,
-        mode: 'in_robot',
+        mode: "in_robot",
         pos: { x: room.robot.x, y: room.robot.y },
         connected: true,
         lastInput: { x: 0, y: 0 },
+        lastInputAt: Date.now(),
         lastButtonAt: 0,
         inventory: [],
         selectedCores: [],
@@ -299,25 +370,37 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
       socket.data = { roomCode, playerId: id };
       socket.join(`room:${room.code}:phones`);
       socketByPlayerId.set(id, socket);
-      log('room', `${roomCode} phone joined unclaimed (connected=${connectedCount(room)}/3, total=${room.players.size}) (socket=${socket.id})`);
+      log(
+        "room",
+        `${roomCode} phone joined unclaimed (connected=${connectedCount(room)}/3, total=${room.players.size}) (socket=${socket.id})`,
+      );
       cb({ ok: true, role: null, sessionId: newSessionId });
     });
 
-    socket.on('phone:leave', (cb) => {
-      const ok = removePhoneFromRoom(socket, mgr);
+    socket.on("phone:leave", (cb) => {
+      const ok = removePhoneFromRoom(socket, mgr, socketByPlayerId);
       cb?.({ ok });
     });
 
-    socket.on('phone:claim_role', ({ role }, cb) => {
-      const data = socket.data as { roomCode?: string; playerId?: string } | undefined;
-      if (!data?.roomCode || !data?.playerId) return cb?.({ ok: false, role: null, error: 'not_joined' });
+    socket.on("phone:claim_role", ({ role }, cb) => {
+      const data = socket.data as
+        { roomCode?: string; playerId?: string } | undefined;
+      if (!data?.roomCode || !data?.playerId)
+        return cb?.({ ok: false, role: null, error: "not_joined" });
       const room = mgr.getRoom(data.roomCode);
       const p = room?.players.get(data.playerId);
-      if (!p || !room) return cb?.({ ok: false, role: null, error: 'not_joined' });
-      if (room.phase !== 'lobby') return cb?.({ ok: false, role: p.role, error: 'not_lobby' });
+      if (!p || !room)
+        return cb?.({ ok: false, role: null, error: "not_joined" });
+      if (room.phase !== "lobby")
+        return cb?.({ ok: false, role: p.role, error: "not_lobby" });
 
       if (role === null) {
-        pushFeed(room, { ts: Date.now(), role: p.role, kind: 'role', detail: 'released role' });
+        pushFeed(room, {
+          ts: Date.now(),
+          role: p.role,
+          kind: "role",
+          detail: "released role",
+        });
         p.role = null;
         p.inventory = [];
         p.selectedCores = [];
@@ -327,8 +410,10 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
         cleanWeaponCoreSelection(room);
         return cb?.({ ok: true, role: null });
       }
-      if (!['defense', 'repair', 'weapons'].includes(role)) return cb?.({ ok: false, role: p.role, error: 'bad_role' });
-      if (roleIsClaimed(room, role, p.id)) return cb?.({ ok: false, role: p.role, error: 'claimed' });
+      if (!["defense", "repair", "weapons"].includes(role))
+        return cb?.({ ok: false, role: p.role, error: "bad_role" });
+      if (roleIsClaimed(room, role, p.id))
+        return cb?.({ ok: false, role: p.role, error: "claimed" });
       for (const other of room.players.values()) {
         if (other.id !== p.id && other.role === role && !other.connected) {
           other.role = null;
@@ -339,125 +424,203 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
         }
       }
 
-      pushFeed(room, { ts: Date.now(), role, kind: 'role', detail: `claimed ${role}` });
+      pushFeed(room, {
+        ts: Date.now(),
+        role,
+        kind: "role",
+        detail: `claimed ${role}`,
+      });
       p.role = role;
-      p.mode = 'in_robot';
+      p.mode = "in_robot";
       p.pos = { x: room.robot.x, y: room.robot.y };
-      p.inventory = role === 'weapons' ? [] : p.inventory;
-      p.selectedCores = role === 'weapons' ? [] : p.selectedCores.slice(0, 2);
-      p.weaponSelectedCores = role === 'weapons' ? p.weaponSelectedCores : [];
-      p.selectedAttackKind = role === 'weapons' ? p.selectedAttackKind : null;
+      p.inventory = role === "weapons" ? [] : p.inventory;
+      p.selectedCores = role === "weapons" ? [] : p.selectedCores.slice(0, 2);
+      p.weaponSelectedCores = role === "weapons" ? p.weaponSelectedCores : [];
+      p.selectedAttackKind = role === "weapons" ? p.selectedAttackKind : null;
       p.quadrant = null;
-      log('room', `${data.roomCode} role claimed ${role} claims=${JSON.stringify(roleClaims(room))}`);
+      log(
+        "room",
+        `${data.roomCode} role claimed ${role} claims=${JSON.stringify(roleClaims(room))}`,
+      );
       cb?.({ ok: true, role });
     });
 
-    socket.on('phone:input', ({ dx, dy }) => {
-      const data = socket.data as { roomCode?: string; playerId?: string } | undefined;
+    socket.on("phone:input", ({ dx, dy }) => {
+      const data = socket.data as
+        { roomCode?: string; playerId?: string } | undefined;
       if (!data?.roomCode || !data?.playerId) return;
       const room = mgr.getRoom(data.roomCode);
       const p = room?.players.get(data.playerId);
-      if (!p || !p.role) return;
-      if (p.role === 'weapons' && p.mode === 'in_robot') {
+      if (
+        !p ||
+        !p.role ||
+        !room ||
+        ["paused", "countdown", "gameover"].includes(room.phase)
+      )
+        return;
+      if (p.role === "weapons" && p.mode === "in_robot") {
         p.lastInput = { x: 0, y: 0 };
         return;
       }
+      p.lastInputAt = Date.now();
       const mag = Math.hypot(dx, dy);
       p.lastInput = mag > 1 ? { x: dx / mag, y: dy / mag } : { x: dx, y: dy };
     });
 
-    socket.on('client:request_start', () => {
-      const data = socket.data as { roomCode?: string; displayRoomCode?: string } | undefined;
+    socket.on("client:request_start", () => {
+      const data = socket.data as
+        { roomCode?: string; displayRoomCode?: string } | undefined;
       const code = data?.roomCode ?? data?.displayRoomCode;
       if (!code) {
-        log('phase', `request_start ignored: no room context (socket=${socket.id})`);
+        log(
+          "phase",
+          `request_start ignored: no room context (socket=${socket.id})`,
+        );
         return;
       }
       const room = mgr.getRoom(code);
       if (!room) {
-        log('phase', `${code} request_start ignored: no such room`);
+        log("phase", `${code} request_start ignored: no such room`);
         return;
       }
       const before = room.phase;
       requestStart(room);
       if (room.phase !== before) {
-        log('phase', `${code} START honored: ${before} -> ${room.phase}`);
+        log("phase", `${code} START honored: ${before} -> ${room.phase}`);
       } else {
-        log('phase', `${code} START ignored (phase=${room.phase}, players=${room.players.size})`);
+        log(
+          "phase",
+          `${code} START ignored (phase=${room.phase}, players=${room.players.size})`,
+        );
       }
     });
 
-    socket.on('phone:button', () => {
-      const data = socket.data as { roomCode?: string; playerId?: string } | undefined;
+    socket.on("phone:button", () => {
+      const data = socket.data as
+        { roomCode?: string; playerId?: string } | undefined;
       if (!data?.roomCode || !data?.playerId) return;
       const room = mgr.getRoom(data.roomCode);
       const p = room?.players.get(data.playerId);
-      if (!p || !room) return;
+      if (!p || !room || room.phase !== "playing") return;
       p.lastButtonAt = Date.now();
       if (!p.role) return;
-      pushFeed(room, { ts: Date.now(), role: p.role, kind: 'action', detail: p.mode === 'in_robot' ? 'EXIT' : 'ENTER' });
-      log('action', `${data.roomCode} button player=${p.role} mode=${p.mode}`);
+      pushFeed(room, {
+        ts: Date.now(),
+        role: p.role,
+        kind: "action",
+        detail: p.mode === "in_robot" ? "EXIT" : "ENTER",
+      });
+      log("action", `${data.roomCode} button player=${p.role} mode=${p.mode}`);
     });
 
-    socket.on('phone:select', ({ index, on }) => {
-      const data = socket.data as { roomCode?: string; playerId?: string } | undefined;
+    socket.on("phone:select", ({ index, on }) => {
+      const data = socket.data as
+        { roomCode?: string; playerId?: string } | undefined;
       if (!data?.roomCode || !data?.playerId) return;
       const room = mgr.getRoom(data.roomCode);
       const p = room?.players.get(data.playerId);
-      if (!p || !room || !p.role) return;
+      if (
+        !p ||
+        !room ||
+        !p.role ||
+        ["paused", "gameover", "countdown"].includes(room.phase)
+      )
+        return;
       if (index < 0 || index > 3) return;
-      if (p.mode === 'on_foot') return; // robot controls are inert while on foot
-      if (p.role === 'defense' || p.role === 'repair') {
+      if (p.mode === "on_foot") return; // robot controls are inert while on foot
+      if (p.role === "defense" || p.role === "repair") {
         if (!p.inventory[index]) return;
         if (on) {
-          if (!p.selectedCores.includes(index) && p.selectedCores.length < 2) p.selectedCores.push(index);
+          if (!p.selectedCores.includes(index) && p.selectedCores.length < 2)
+            p.selectedCores.push(index);
         } else {
           p.selectedCores = p.selectedCores.filter((i) => i !== index);
         }
         cleanWeaponCoreSelection(room);
-        pushFeed(room, { ts: Date.now(), role: p.role, kind: 'select', detail: `CORE ${index + 1} ${on ? 'OFFER' : 'OFF'}` });
+        pushFeed(room, {
+          ts: Date.now(),
+          role: p.role,
+          kind: "select",
+          detail: `CORE ${index + 1} ${on ? "OFFER" : "OFF"}`,
+        });
         return;
       }
-      if (p.role === 'weapons') {
+      if (p.role === "weapons") {
         const type = offeredCores(room)[index];
         if (!type) return;
         if (on) {
-          if (!p.weaponSelectedCores.includes(type)) p.weaponSelectedCores.push(type);
+          if (!p.weaponSelectedCores.includes(type))
+            p.weaponSelectedCores.push(type);
         } else {
-          p.weaponSelectedCores = p.weaponSelectedCores.filter((core) => core !== type);
+          p.weaponSelectedCores = p.weaponSelectedCores.filter(
+            (core) => core !== type,
+          );
         }
-        pushFeed(room, { ts: Date.now(), role: p.role, kind: 'select', detail: `${type.toUpperCase()} ${on ? 'ARMED' : 'OFF'}` });
+        pushFeed(room, {
+          ts: Date.now(),
+          role: p.role,
+          kind: "select",
+          detail: `${type.toUpperCase()} ${on ? "ARMED" : "OFF"}`,
+        });
       }
     });
 
-    socket.on('phone:quadrant', ({ index }) => {
-      const data = socket.data as { roomCode?: string; playerId?: string } | undefined;
+    socket.on("phone:quadrant", ({ index }) => {
+      const data = socket.data as
+        { roomCode?: string; playerId?: string } | undefined;
       if (!data?.roomCode || !data?.playerId) return;
       const room = mgr.getRoom(data.roomCode);
       const p = room?.players.get(data.playerId);
-      if (!p || !room || !p.role) return;
+      if (
+        !p ||
+        !room ||
+        !p.role ||
+        ["paused", "gameover", "countdown"].includes(room.phase)
+      )
+        return;
       if (index < 0 || index > 3) return;
-      if (p.mode === 'on_foot') return; // robot controls are inert while on foot
+      if (p.mode === "on_foot") return; // robot controls are inert while on foot
       const q = index as Quadrant;
-      if (p.role === 'repair') {
+      if (p.role === "repair") {
         repairQuadrant(room, q);
-        pushFeed(room, { ts: Date.now(), role: p.role, kind: 'repair', detail: `+5 ${['NW', 'NE', 'SW', 'SE'][index]}` });
+        pushFeed(room, {
+          ts: Date.now(),
+          role: p.role,
+          kind: "repair",
+          detail: `+5 ${["NW", "NE", "SW", "SE"][index]}`,
+        });
         return;
       }
-      if (p.role === 'defense') {
+      if (p.role === "defense") {
         p.quadrant = p.quadrant === q ? null : q;
         room.shieldQuadrant = p.quadrant;
-        const labels = ['NW', 'NE', 'SW', 'SE'];
-        pushFeed(room, { ts: Date.now(), role: p.role, kind: 'quadrant', detail: p.quadrant === null ? 'SHIELD OFF' : `SHIELD ${labels[index]}` });
-        log('action', `${data.roomCode} shield player=${p.role} -> ${p.quadrant}`);
+        const labels = ["NW", "NE", "SW", "SE"];
+        pushFeed(room, {
+          ts: Date.now(),
+          role: p.role,
+          kind: "quadrant",
+          detail:
+            p.quadrant === null ? "SHIELD OFF" : `SHIELD ${labels[index]}`,
+        });
+        log(
+          "action",
+          `${data.roomCode} shield player=${p.role} -> ${p.quadrant}`,
+        );
         return;
       }
-      if (p.role === 'weapons') {
-        if (room.phase === 'playing' && p.selectedAttackKind) {
+      if (p.role === "weapons") {
+        if (room.phase === "playing" && p.selectedAttackKind) {
           const available = new Set<CoreType>(offeredCores(room));
-          const selected = p.weaponSelectedCores.filter((type) => available.has(type));
+          const selected = p.weaponSelectedCores.filter((type) =>
+            available.has(type),
+          );
           fireAttack(room, p.selectedAttackKind, q, selected);
-          pushFeed(room, { ts: Date.now(), role: p.role, kind: 'fire', detail: `${p.selectedAttackKind.toUpperCase()} ${['NW', 'NE', 'SW', 'SE'][index]}` });
+          pushFeed(room, {
+            ts: Date.now(),
+            role: p.role,
+            kind: "fire",
+            detail: `${p.selectedAttackKind.toUpperCase()} ${["NW", "NE", "SW", "SE"][index]}`,
+          });
         }
         // weapon direction is a one-shot, not a toggle — clear so the UI
         // doesn't keep showing the last-tapped direction as active.
@@ -467,53 +630,100 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
       }
     });
 
-    socket.on('phone:select_attack', ({ kind }) => {
-      const data = socket.data as { roomCode?: string; playerId?: string } | undefined;
+    socket.on("phone:select_attack", ({ kind }) => {
+      const data = socket.data as
+        { roomCode?: string; playerId?: string } | undefined;
       if (!data?.roomCode || !data?.playerId) return;
       const room = mgr.getRoom(data.roomCode);
       const p = room?.players.get(data.playerId);
-      if (!p || !room || p.role !== 'weapons') return;
-      if (kind !== null && !['melee', 'rotary', 'laser', 'bomb'].includes(kind)) return;
+      if (
+        !p ||
+        !room ||
+        ["paused", "gameover", "countdown"].includes(room.phase) ||
+        p.role !== "weapons"
+      )
+        return;
+      if (kind !== null && !["melee", "rotary", "laser", "bomb"].includes(kind))
+        return;
       p.selectedAttackKind = p.selectedAttackKind === kind ? null : kind;
-      pushFeed(room, { ts: Date.now(), role: p.role, kind: 'select', detail: p.selectedAttackKind ? `${p.selectedAttackKind.toUpperCase()} ARMED` : 'ATTACK OFF' });
+      pushFeed(room, {
+        ts: Date.now(),
+        role: p.role,
+        kind: "select",
+        detail: p.selectedAttackKind
+          ? `${p.selectedAttackKind.toUpperCase()} ARMED`
+          : "ATTACK OFF",
+      });
     });
 
-    socket.on('phone:repair', ({ quadrant }) => {
-      const data = socket.data as { roomCode?: string; playerId?: string } | undefined;
+    socket.on("phone:repair", ({ quadrant }) => {
+      const data = socket.data as
+        { roomCode?: string; playerId?: string } | undefined;
       if (!data?.roomCode || !data?.playerId) return;
       const room = mgr.getRoom(data.roomCode);
       const p = room?.players.get(data.playerId);
-      if (!p || !room || p.role !== 'repair' || p.mode === 'on_foot') return;
+      if (
+        !p ||
+        !room ||
+        ["paused", "gameover", "countdown"].includes(room.phase) ||
+        p.role !== "repair" ||
+        p.mode === "on_foot"
+      )
+        return;
       if (quadrant < 0 || quadrant > 3) return;
       repairQuadrant(room, quadrant as Quadrant);
-      pushFeed(room, { ts: Date.now(), role: p.role, kind: 'repair', detail: `+5 ${['NW', 'NE', 'SW', 'SE'][quadrant]}` });
+      pushFeed(room, {
+        ts: Date.now(),
+        role: p.role,
+        kind: "repair",
+        detail: `+5 ${["NW", "NE", "SW", "SE"][quadrant]}`,
+      });
     });
 
-    socket.on('phone:fire', ({ kind }) => {
-      const data = socket.data as { roomCode?: string; playerId?: string } | undefined;
+    socket.on("phone:fire", ({ kind }) => {
+      const data = socket.data as
+        { roomCode?: string; playerId?: string } | undefined;
       if (!data?.roomCode || !data?.playerId) return;
       const room = mgr.getRoom(data.roomCode);
       const p = room?.players.get(data.playerId);
-      if (!p || !room || p.role !== 'weapons' || p.mode === 'on_foot') return;
-      if (room.phase !== 'playing') return;
-      if (!['melee', 'rotary', 'laser', 'bomb'].includes(kind)) return;
+      if (!p || !room || p.role !== "weapons" || p.mode === "on_foot") return;
+      if (room.phase !== "playing") return;
+      if (!["melee", "rotary", "laser", "bomb"].includes(kind)) return;
       if (p.quadrant === null) return;
       const available = new Set<CoreType>(offeredCores(room));
-      const selected = p.weaponSelectedCores.filter((type) => available.has(type));
+      const selected = p.weaponSelectedCores.filter((type) =>
+        available.has(type),
+      );
       fireAttack(room, kind, p.quadrant, selected);
-      pushFeed(room, { ts: Date.now(), role: p.role, kind: 'fire', detail: kind.toUpperCase() });
+      pushFeed(room, {
+        ts: Date.now(),
+        role: p.role,
+        kind: "fire",
+        detail: kind.toUpperCase(),
+      });
     });
 
-    socket.on('disconnect', () => {
-      const data = socket.data as { roomCode?: string; playerId?: string; displayRoomCode?: string } | undefined;
-      log('net', `disconnect ${socket.id}${data?.playerId ? ` player=${data.playerId.slice(0, 8)}` : ''}${data?.displayRoomCode ? ` display-of=${data.displayRoomCode}` : ''}`);
+    socket.on("disconnect", () => {
+      const data = socket.data as
+        | { roomCode?: string; playerId?: string; displayRoomCode?: string }
+        | undefined;
+      log(
+        "net",
+        `disconnect ${socket.id}${data?.playerId ? ` player=${data.playerId.slice(0, 8)}` : ""}${data?.displayRoomCode ? ` display-of=${data.displayRoomCode}` : ""}`,
+      );
+
+      if (data?.displayRoomCode) {
+        const room = mgr.getRoom(data.displayRoomCode);
+        room?.displaySockets.delete(socket.id);
+        if (room) room.lastOccupiedAt = Date.now();
+      }
 
       // Rooms persist across display disconnects so F5 / reconnect can resume
       // them via display:join_room. Use the × end game button or the
       // /display?new=1 path to explicitly destroy a room.
 
       if (data?.playerId) {
-        const room = mgr.getRoom(data.roomCode ?? '');
+        const room = mgr.getRoom(data.roomCode ?? "");
         const p = room?.players.get(data.playerId);
         // Only flip connected=false if the player isn't already bound to a
         // newer socket — otherwise a late disconnect would clobber a fresh
@@ -521,11 +731,17 @@ export function registerHandlers(io: IO, mgr: RoomManager) {
         const currentSocket = socketByPlayerId.get(data.playerId);
         const stillBoundToUs = !currentSocket || currentSocket.id === socket.id;
         if (p && stillBoundToUs) {
+          p.lastInput = { x: 0, y: 0 };
+          p.lastInputAt = 0;
+          p.lastButtonAt = 0;
+          p.disconnectedAt = Date.now();
           p.connected = false;
-          log('room', `${data.roomCode} player ${p.role} disconnected`);
+          if (room) room.lastOccupiedAt = Date.now();
+          log("room", `${data.roomCode} player ${p.role} disconnected`);
         }
         if (stillBoundToUs) socketByPlayerId.delete(data.playerId);
       }
     });
   });
+  return { socketByPlayerId };
 }

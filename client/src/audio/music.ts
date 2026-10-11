@@ -1,120 +1,106 @@
-// Procedural music tracks. Each track defines `scheduleBar(ctx, out, t0, n)`
-// — schedules one bar of notes and returns when it ends. `n` is a 0-based bar
-// counter the engine maintains so voices can vary content across a phrase.
-// The engine loops by calling repeatedly. Replace with
-// AudioBufferSourceNode/HTMLAudioElement-backed loops of real files later.
-
-import { tone } from './synth.js';
-import type { MusicVoice } from './engine.js';
-
-export type MusicTrack = 'menu' | 'game';
-
-// degree→hz from a root, in semitones.
-function hz(root: number, semis: number): number {
-  return root * 2 ** (semis / 12);
-}
-
-// --- MENU ---------------------------------------------------------------
-// Slow, cheerful arpeggio over a sub. 4-bar phrase with a small lift.
-const menu: MusicVoice = {
-  scheduleBar(ctx, out, t0, n) {
-    const bpm = 92;
-    const beat = 60 / bpm;
-    const aRoot = 220; // A3
-    // Two-chord phrase: Am → C, swap each bar; every 4 bars lift the top.
-    const phase = n % 4;
-    const top = phase >= 2 ? 19 : 16; // little melodic lift
-    const chord = phase % 2 === 0
-      ? [0, 7, 12, top]            // Am-ish
-      : [3, 10, 15, top + 3];      // C-ish
-    const eighth = beat / 2;
-    for (let i = 0; i < 8; i++) {
-      const semi = chord[i % chord.length] ?? 0;
-      tone(ctx, out, t0 + i * eighth, {
-        freq: hz(aRoot, semi), durMs: eighth * 1000 * 0.9,
-        type: 'triangle', gain: 0.16, attackMs: 6, releaseMs: 140,
+import { keys, noise, tone } from "./synth.js";
+import type { MusicVoice } from "./engine.js";
+export type MusicTrack = "menu" | "game";
+const frequency = (root: number, semitones: number) =>
+  root * 2 ** (semitones / 12);
+// A 32-bar arrangement: soft electric keys, rounded bass and brushed percussion.
+// Phrases leave space; the second half answers the first instead of repeating an arpeggio.
+const progression = [
+  { root: 0, notes: [0, 4, 7, 11, 14] },
+  { root: -3, notes: [0, 3, 7, 10, 14] },
+  { root: 5, notes: [0, 4, 7, 11, 14] },
+  { root: 7, notes: [0, 4, 7, 9, 14] },
+  { root: 0, notes: [0, 4, 7, 11, 14] },
+  { root: 9, notes: [0, 3, 7, 10, 14] },
+  { root: 5, notes: [0, 4, 7, 11, 14] },
+  { root: 7, notes: [0, 4, 7, 9, 14] },
+];
+function track(game: boolean): MusicVoice {
+  return {
+    scheduleBar(ctx, out, t0, n) {
+      const bar = n % 32,
+        beat = 60 / (game ? 96 : 86),
+        chord = progression[Math.floor(bar / 4)]!,
+        root = frequency(146.832, chord.root),
+        quiet = bar % 16 >= 14;
+      const variation = 0.91 + ((n * 7) % 9) * 0.015;
+      // Warm chord voicings, lightly rolled. Alternate inversions every phrase.
+      const voicing =
+        bar >= 16 ? chord.notes.slice(1) : chord.notes.slice(0, 4);
+      if (bar % 2 === 0)
+        voicing.forEach((v, i) =>
+          keys(ctx, out, t0 + i * 0.035, {
+            freq: frequency(root, v),
+            durMs: beat * 6.8 * 1000,
+            gain: 3 * (quiet ? 0.016 : 0.025) * variation,
+            pad: true,
+          }),
+        );
+      keys(ctx, out, t0 + 0.01, {
+        freq: frequency(root, -12),
+        durMs: beat * 2.1 * 1000,
+        gain: 3 * (quiet ? 0.04 : 0.065),
+        bass: true,
       });
-    }
-    // Bass on 1 and 3.
-    const bassA = phase % 2 === 0 ? -12 : -9;
-    const bassB = phase % 2 === 0 ? -5 : -2;
-    tone(ctx, out, t0, {
-      freq: hz(aRoot, bassA), durMs: beat * 1.8 * 1000,
-      type: 'sine', gain: 0.30, attackMs: 6, releaseMs: 220,
-    });
-    tone(ctx, out, t0 + beat * 2, {
-      freq: hz(aRoot, bassB), durMs: beat * 1.8 * 1000,
-      type: 'sine', gain: 0.30, attackMs: 6, releaseMs: 220,
-    });
-    return t0 + beat * 4;
-  },
-};
-
-// --- GAME ---------------------------------------------------------------
-// Chill driving loop — no four-on-the-floor kick, soft pulse instead.
-// 8-bar phrase with two contrasting halves so it doesn't feel repetitive.
-const game: MusicVoice = {
-  scheduleBar(ctx, out, t0, n) {
-    const bpm = 104;
-    const beat = 60 / bpm;
-    const root = hz(220, -5); // E3-ish, minor-feeling
-    const phase = n % 8;
-    const halfB = phase >= 4; // second half = contrast
-
-    // ── Sub-bass pulse: only on beat 1 (and a soft pickup on "and-of-4"
-    //    for the contrast half). No kick on every beat.
-    tone(ctx, out, t0, {
-      freq: hz(root, -12), durMs: beat * 2.6 * 1000,
-      type: 'sine', gain: 0.36, attackMs: 12, releaseMs: 600,
-    });
-    if (halfB) {
-      tone(ctx, out, t0 + beat * 3.5, {
-        freq: hz(root, -12), durMs: beat * 0.6 * 1000,
-        type: 'sine', gain: 0.22, attackMs: 8, releaseMs: 240,
-      });
-    }
-
-    // ── Soft "tick" on the off-beats — closed hat feel, low volume.
-    //    Half-time so it's not aggressive: beat 2 and beat 4 only.
-    [1, 3].forEach((b) => {
-      tone(ctx, out, t0 + b * beat, {
-        freq: 7000, durMs: 30, type: 'square', gain: 0.04, attackMs: 1, releaseMs: 25,
-      });
-    });
-
-    // ── Sparse, breathy chord pad — held across the bar.
-    //    Phrase varies: A→C→F→G across 8 bars.
-    const chords = [
-      [0, 7, 12],  // Am
-      [0, 7, 12],
-      [3, 10, 15], // C
-      [3, 10, 15],
-      [-4, 3, 8],  // F
-      [-4, 3, 8],
-      [-2, 5, 10], // G
-      [-2, 5, 10],
-    ];
-    const ch = chords[phase] ?? chords[0]!;
-    for (const semi of ch) {
-      tone(ctx, out, t0 + beat * 0.1, {
-        freq: hz(root, semi), durMs: beat * 3.6 * 1000,
-        type: 'triangle', gain: 0.07, attackMs: 80, releaseMs: 400,
-      });
-    }
-
-    // ── Sparse melodic motif — only on the contrast half, on beat 2.
-    if (halfB) {
-      const motif = phase === 5 ? [12, 15] : phase === 7 ? [10, 12] : [12];
-      motif.forEach((semi, i) => {
-        tone(ctx, out, t0 + beat * (2 + i * 0.5), {
-          freq: hz(root, semi), durMs: beat * 0.8 * 1000,
-          type: 'sine', gain: 0.10, attackMs: 10, releaseMs: 300,
+      if (!quiet && bar % 4 !== 3)
+        keys(ctx, out, t0 + beat * 2.5, {
+          freq: frequency(root, bar % 2 ? -5 : -12),
+          durMs: beat * 0.9 * 1000,
+          gain: 3 * 0.037,
+          bass: true,
         });
-      });
-    }
-
-    return t0 + beat * 4;
-  },
+      // Phrases have different rhythms and deliberate rests. No constant eighth-note loop.
+      const phrases: number[][] = [
+        [7, 11, 14],
+        [12, 7],
+        [14, 11, 7],
+        [],
+        [7, 9],
+        [12, 14, 11],
+        [],
+        [7, 4],
+      ];
+      const phrase = phrases[(bar + (bar >= 16 ? 3 : 0)) % 8]!;
+      if (!quiet && bar % 2 === (game ? 1 : 0))
+        phrase.forEach((v, i) =>
+          keys(ctx, out, t0 + beat * (0.75 + i * (bar % 3 === 0 ? 0.65 : 1)), {
+            freq: frequency(root, v + (bar >= 16 ? -12 : 0)),
+            durMs: beat * (i === phrase.length - 1 ? 1.65 : 0.85) * 1000,
+            gain: 3 * (game ? 0.036 : 0.045) * variation,
+          }),
+        );
+      if (game && !quiet) {
+        tone(ctx, out, t0, {
+          freq: 83,
+          sweepTo: 43,
+          durMs: 160,
+          type: "sine",
+          gain: 3 * 0.064,
+          attackMs: 5,
+          releaseMs: 145,
+        });
+        for (const b of [1, 3])
+          noise(ctx, out, t0 + beat * b, {
+            durMs: 110,
+            gain: 3 * 0.019,
+            lowpass: 1600,
+            attackMs: 12,
+            releaseMs: 95,
+          });
+        if (bar % 4 === 2)
+          noise(ctx, out, t0 + beat * 3.5, {
+            durMs: 70,
+            gain: 3 * 0.011,
+            lowpass: 1100,
+            attackMs: 8,
+            releaseMs: 60,
+          });
+      }
+      return t0 + beat * 4;
+    },
+  };
+}
+export const MUSIC: Record<MusicTrack, MusicVoice> = {
+  menu: track(false),
+  game: track(true),
 };
-
-export const MUSIC: Record<MusicTrack, MusicVoice> = { menu, game };

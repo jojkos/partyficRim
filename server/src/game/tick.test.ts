@@ -1,9 +1,14 @@
-import { describe, it, expect } from 'vitest';
-import { RoomManager } from './rooms.js';
-import { tickRoom, buildDisplaySnapshot, buildPhoneSnapshot, requestStart } from './tick.js';
-import type { Role } from '@partyficrim/shared';
+import { describe, it, expect } from "vitest";
+import { RoomManager } from "./rooms.js";
+import {
+  tickRoom,
+  buildDisplaySnapshot,
+  buildPhoneSnapshot,
+  requestStart,
+} from "./tick.js";
+import type { Role } from "@partyficrim/shared";
 
-const roles: Role[] = ['defense', 'repair', 'weapons'];
+const roles: Role[] = ["defense", "repair", "weapons"];
 
 function makeRoomWithPlayers(count: 0 | 1 | 2 | 3) {
   const mgr = new RoomManager();
@@ -11,133 +16,178 @@ function makeRoomWithPlayers(count: 0 | 1 | 2 | 3) {
   for (let i = 0; i < count; i++) {
     const id = `p${i + 1}`;
     room.players.set(id, {
-      id, sessionId: `s${i + 1}`, role: roles[i] ?? null, mode: 'in_robot',
-      pos: { x: room.robot.x, y: room.robot.y }, connected: true,
-      lastInput: { x: 0, y: 0 }, lastButtonAt: 0,
-      inventory: [], selectedCores: [], weaponSelectedCores: [], selectedAttackKind: null, quadrant: null,
+      id,
+      sessionId: `s${i + 1}`,
+      role: roles[i] ?? null,
+      mode: "in_robot",
+      pos: { x: room.robot.x, y: room.robot.y },
+      connected: true,
+      lastInput: { x: 0, y: 0 },
+      lastButtonAt: 0,
+      inventory: [],
+      selectedCores: [],
+      weaponSelectedCores: [],
+      selectedAttackKind: null,
+      quadrant: null,
     });
   }
   return { mgr, room };
 }
 
-describe('phase transitions', () => {
-  it('stays in lobby with 0, 1, or 2 players (no auto-start)', () => {
+describe("phase transitions", () => {
+  it("stays in lobby with 0, 1, or 2 players (no auto-start)", () => {
     const { room: r1 } = makeRoomWithPlayers(1);
     tickRoom(r1, 0.033);
-    expect(r1.phase).toBe('lobby');
+    expect(r1.phase).toBe("lobby");
 
     const { room: r2 } = makeRoomWithPlayers(2);
     tickRoom(r2, 0.033);
-    expect(r2.phase).toBe('lobby');
+    expect(r2.phase).toBe("lobby");
   });
 
-  it('requestStart only transitions to countdown when 3 roles are claimed and connected', () => {
+  it("requestStart only transitions to countdown when 3 roles are claimed and connected", () => {
     const { room: r1 } = makeRoomWithPlayers(1);
     requestStart(r1);
-    expect(r1.phase).toBe('lobby');
+    expect(r1.phase).toBe("lobby");
 
     const { room: r2 } = makeRoomWithPlayers(3);
     requestStart(r2);
-    expect(r2.phase).toBe('countdown');
+    expect(r2.phase).toBe("countdown");
     expect(r2.countdownMsRemaining).toBeGreaterThan(0);
   });
 
-  it('transitions to playing after countdown finishes', () => {
+  it("transitions to playing after countdown finishes", () => {
     const { room } = makeRoomWithPlayers(3);
     requestStart(room);
-    expect(room.phase).toBe('countdown');
+    expect(room.phase).toBe("countdown");
     for (let i = 0; i < 110; i++) tickRoom(room, 0.033);
-    expect(room.phase).toBe('playing');
+    expect(room.phase).toBe("playing");
   });
 
-  it('pauses when a player disconnects mid-game', () => {
+  it("pauses when a player disconnects mid-game", () => {
     const { room } = makeRoomWithPlayers(3);
     requestStart(room);
     for (let i = 0; i < 200; i++) tickRoom(room, 0.033);
-    expect(room.phase).toBe('playing');
-    const p1 = room.players.get('p1');
+    expect(room.phase).toBe("playing");
+    const p1 = room.players.get("p1");
     if (p1) p1.connected = false;
     tickRoom(room, 0.033);
-    expect(room.phase).toBe('paused');
+    expect(room.phase).toBe("paused");
   });
 
-  it('resumes when player reconnects', () => {
+  it("resumes when player reconnects", () => {
     const { room } = makeRoomWithPlayers(3);
     requestStart(room);
     for (let i = 0; i < 200; i++) tickRoom(room, 0.033);
-    const p1 = room.players.get('p1');
+    const p1 = room.players.get("p1");
     if (p1) p1.connected = false;
     tickRoom(room, 0.033);
-    expect(room.phase).toBe('paused');
-    const p1b = room.players.get('p1');
+    expect(room.phase).toBe("paused");
+    const p1b = room.players.get("p1");
     if (p1b) p1b.connected = true;
     tickRoom(room, 0.033);
-    expect(room.phase).toBe('playing');
+    expect(room.phase).toBe("playing");
   });
 });
 
-describe('snapshots', () => {
-  it('buildDisplaySnapshot exposes room code, robot, players, phase', () => {
+describe("snapshots", () => {
+  it("buildDisplaySnapshot exposes room code, robot, players, phase", () => {
     const { room } = makeRoomWithPlayers(2);
     const snap = buildDisplaySnapshot(room);
     expect(snap.roomCode).toBe(room.code);
     expect(snap.robot).toEqual(room.robot);
     expect(snap.players.length).toBe(2);
-    expect(snap.phase).toBe('lobby');
+    expect(snap.phase).toBe("lobby");
   });
 
-  it('buildPhoneSnapshot includes own role and occupancy', () => {
+  it("buildPhoneSnapshot includes own role and occupancy", () => {
     const { room } = makeRoomWithPlayers(2);
-    const snap = buildPhoneSnapshot(room, 'p1');
-    expect(snap.role).toBe('defense');
-    expect(snap.mode).toBe('in_robot');
-    expect(snap.occupancy.defense).toBe('in_robot');
-    expect(snap.occupancy.repair).toBe('in_robot');
+    const snap = buildPhoneSnapshot(room, "p1");
+    expect(snap.role).toBe("defense");
+    expect(snap.mode).toBe("in_robot");
+    expect(snap.occupancy.defense).toBe("in_robot");
+    expect(snap.occupancy.repair).toBe("in_robot");
   });
 });
 
-describe('additional phase transitions', () => {
-  it('countdown reverts to lobby when a player disconnects', () => {
+describe("additional phase transitions", () => {
+  it("countdown reverts to lobby when a player disconnects", () => {
     const { room } = makeRoomWithPlayers(3);
     requestStart(room);
-    expect(room.phase).toBe('countdown');
+    expect(room.phase).toBe("countdown");
 
-    const p1 = room.players.get('p1');
+    const p1 = room.players.get("p1");
     if (p1) p1.connected = false;
     tickRoom(room, 0.033);
-    expect(room.phase).toBe('lobby');
+    expect(room.phase).toBe("lobby");
     expect(room.countdownMsRemaining).toBe(0);
   });
 
-  it('gameover is set when any quadrant hp reaches 0 during playing', () => {
+  it("gameover is set when any quadrant hp reaches 0 during playing", () => {
     const { room } = makeRoomWithPlayers(3);
     requestStart(room);
     for (let i = 0; i < 200; i++) tickRoom(room, 0.033);
-    expect(room.phase).toBe('playing');
+    expect(room.phase).toBe("playing");
 
     // Force gameover by setting hp to barely above 0, then importing
     // the damage function. applyQuadrantDamage comes from attacks.ts.
     // We test the gameover trigger directly via the room state.
     room.quadrantHp[1] = 0;
-    room.phase = 'gameover'; // this is what the damage functions do
-    expect(room.phase).toBe('gameover');
+    room.phase = "gameover"; // this is what the damage functions do
+    expect(room.phase).toBe("gameover");
   });
 
-  it('requestStart is ignored during playing phase', () => {
+  it("requestStart is ignored during playing phase", () => {
     const { room } = makeRoomWithPlayers(3);
     requestStart(room);
     for (let i = 0; i < 200; i++) tickRoom(room, 0.033);
-    expect(room.phase).toBe('playing');
+    expect(room.phase).toBe("playing");
     requestStart(room);
-    expect(room.phase).toBe('playing'); // unchanged
+    expect(room.phase).toBe("playing"); // unchanged
   });
 
-  it('lobby tick is a no-op (no phase change)', () => {
+  it("lobby tick is a no-op (no phase change)", () => {
     const { room } = makeRoomWithPlayers(3);
     tickRoom(room, 0.033);
     tickRoom(room, 0.033);
     tickRoom(room, 0.033);
-    expect(room.phase).toBe('lobby');
+    expect(room.phase).toBe("lobby");
   });
 });
 
+describe("movement lease and survival clock", () => {
+  it("stops stale movement after the input heartbeat expires", () => {
+    const { room } = makeRoomWithPlayers(3);
+    room.phase = "playing";
+    const player = room.players.get("p1")!;
+    player.lastInput = { x: 1, y: 0 };
+    player.lastInputAt = Date.now() - 501;
+    const x = room.robot.x;
+    tickRoom(room, 0.016);
+    expect(room.robot.x).toBe(x);
+    expect(player.lastInput).toEqual({ x: 0, y: 0 });
+  });
+  it("retains elapsed survival time across pause and clears pre-pause input", () => {
+    const { room } = makeRoomWithPlayers(3);
+    room.phase = "playing";
+    tickRoom(room, 1);
+    const elapsed = room.elapsedMs;
+    room.players.get("p1")!.connected = false;
+    tickRoom(room, 0.016);
+    room.players.get("p2")!.lastInput = { x: 0, y: 1 };
+    tickRoom(room, 1);
+    expect(room.elapsedMs).toBe(elapsed);
+    room.players.get("p1")!.connected = true;
+    tickRoom(room, 0.016);
+    tickRoom(room, 0.016);
+    expect(room.elapsedMs).toBeCloseTo(elapsed + 16);
+    expect(room.players.get("p2")!.lastInput).toEqual({ x: 0, y: 0 });
+  });
+  it("orders snapshots monotonically and includes the phone room identity", () => {
+    const { room } = makeRoomWithPlayers(3);
+    const first = buildDisplaySnapshot(room);
+    tickRoom(room, 0.016);
+    expect(buildDisplaySnapshot(room).sequence).toBeGreaterThan(first.sequence);
+    expect(buildPhoneSnapshot(room, "p1").roomCode).toBe(room.code);
+  });
+});

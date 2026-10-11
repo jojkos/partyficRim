@@ -1,30 +1,41 @@
-export type Role = 'defense' | 'repair' | 'weapons';
-export type Mode = 'in_robot' | 'on_foot';
-export type Phase = 'lobby' | 'countdown' | 'playing' | 'paused' | 'gameover';
+export type Role = "defense" | "repair" | "weapons";
+export type Mode = "in_robot" | "on_foot";
+export type Phase = "lobby" | "countdown" | "playing" | "paused" | "gameover";
 export type Quadrant = 0 | 1 | 2 | 3;
-export type AttackKind = 'melee' | 'rotary' | 'laser' | 'bomb';
-export type CoreType = 'red' | 'orange' | 'yellow' | 'green' | 'cyan' | 'blue' | 'purple' | 'pink';
+export type AttackKind = "melee" | "rotary" | "laser" | "bomb";
+export type CoreType =
+  "red" | "orange" | "yellow" | "green" | "cyan" | "blue" | "purple" | "pink";
 
 export const ROLE_LABEL: Record<Role, string> = {
-  defense: 'DEFENSE OFFICER',
-  repair: 'REPAIR ENGINEER',
-  weapons: 'WEAPONS ENGINEER',
+  defense: "DEFENSE OFFICER",
+  repair: "REPAIR ENGINEER",
+  weapons: "WEAPONS ENGINEER",
 };
 
 export const CORE_COLORS: Record<CoreType, string> = {
-  red: '#ff4d5e',
-  orange: '#ff9b3d',
-  yellow: '#ffe45c',
-  green: '#65e572',
-  cyan: '#4ce6ff',
-  blue: '#4b83ff',
-  purple: '#a56bff',
-  pink: '#ff6fd8',
+  red: "#ff4d5e",
+  orange: "#ff9b3d",
+  yellow: "#ffe45c",
+  green: "#65e572",
+  cyan: "#4ce6ff",
+  blue: "#4b83ff",
+  purple: "#a56bff",
+  pink: "#ff6fd8",
 };
 
-export const CORE_TYPES: CoreType[] = ['red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'purple', 'pink'];
+export const CORE_TYPES: CoreType[] = [
+  "red",
+  "orange",
+  "yellow",
+  "green",
+  "cyan",
+  "blue",
+  "purple",
+  "pink",
+];
 
-export type EventKind = 'select' | 'quadrant' | 'action' | 'role' | 'fire' | 'repair' | 'core';
+export type EventKind =
+  "select" | "quadrant" | "action" | "role" | "fire" | "repair" | "core";
 
 export interface FeedEvent {
   ts: number;
@@ -89,6 +100,9 @@ export interface AttackState {
 }
 
 export interface DisplaySnapshot {
+  sequence: number;
+  serverTime: number;
+  elapsedMs: number;
   phase: Phase;
   countdownMsRemaining: number;
   robot: Vec2;
@@ -108,6 +122,9 @@ export interface DisplaySnapshot {
 }
 
 export interface PhoneSnapshot {
+  roomCode: string;
+  sequence: number;
+  serverTime: number;
   phase: Phase;
   role: Role | null;
   mode: Mode;

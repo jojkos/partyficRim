@@ -1,4 +1,6 @@
-export const WEAPON_RADIUS_100 = 160;
-export const MELEE_RADIUS = WEAPON_RADIUS_100 * 0.25;
-export const ROTARY_RADIUS = WEAPON_RADIUS_100 * 0.75;
-export const BOMB_DAMAGE_RADIUS = WEAPON_RADIUS_100 * 0.5;
+export {
+  WEAPON_RADIUS_100,
+  MELEE_RADIUS,
+  ROTARY_RADIUS,
+  BOMB_DAMAGE_RADIUS,
+} from "@partyficrim/shared";

@@ -10,8 +10,9 @@
   },
   "dependencies": {
     "@partyficrim/shared": "*",
-    "express": "^4.19.0",
-    "socket.io": "^4.7.0"
+    "express": "^4.22.3",
+    "socket.io": "^4.8.4",
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/express": "^4.17.0",
@@ -19,6 +20,6 @@
     "socket.io-client": "^4.7.0",
     "tsx": "^4.7.0",
     "typescript": "^5.4.0",
-    "vitest": "^1.4.0"
+    "vitest": "^4.1.11"
   }
 }

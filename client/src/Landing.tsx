@@ -1,77 +1,71 @@
-import { Link } from 'react-router-dom';
-import { Robot, EnemySprite } from './display/Sprites.js';
-import { PR, Starfield, Wordmark, bevelButtonStyle } from './ui/theme.js';
-
+import { useEffect } from "react";
+import { audio } from "./audio/engine.js";
+import { Link } from "react-router-dom";
+import { Robot, EnemySprite } from "./display/Sprites.js";
+import { MuteButton } from "./audio/MuteButton.js";
 export function Landing() {
+  useEffect(() => {
+    audio.music("menu");
+    return () => audio.music(null);
+  }, []);
   return (
-    <div style={{
-      position: 'relative', width: '100%', height: '100%', overflow: 'hidden',
-      background: `radial-gradient(ellipse at top, #2d1b4d 0%, ${PR.color.bg} 60%, ${PR.color.bgDeep} 100%)`,
-      fontFamily: PR.font.sans, color: PR.color.paper,
-    }}>
-      <Starfield count={36} />
-
-      {/* title */}
-      <div style={{
-        position: 'absolute', top: '15%', left: '50%', transform: 'translateX(-50%)',
-        textAlign: 'center', zIndex: 4, whiteSpace: 'nowrap',
-      }}>
-        <Wordmark size={132} />
+    <main className="page">
+      <div className="shell">
+        <header className="topbar">
+          <Link className="wordmark" to="/">
+            partyfic<span>RIM</span>
+          </Link>
+          <MuteButton />
+        </header>
+        <section className="hero">
+          <div className="hero-copy">
+            <span className="eyebrow">A little robot. A whole crew.</span>
+            <h1>
+              Three pilots.
+              <br />
+              One <em>big adventure.</em>
+            </h1>
+            <p>
+              Steer, shield, repair and blast your way through the arena. Your
+              phones are the controls. Teamwork does the rest.
+            </p>
+            <div className="hero-actions">
+              <Link className="action-card" to="/display?new=1">
+                <strong>Host a game ↗</strong>
+                <small>Put the arena on a big screen</small>
+              </Link>
+              <Link className="action-card join" to="/play">
+                <strong>Join the crew ↗</strong>
+                <small>Use your phone as a controller</small>
+              </Link>
+            </div>
+          </div>
+          <div className="hero-art" aria-hidden="true">
+            <div className="hero-orbit" />
+            <div className="main-robot">
+              <Robot size={310} />
+            </div>
+            <div className="hero-enemy one">
+              <EnemySprite kind="slime" size={130} />
+            </div>
+            <div className="hero-enemy two">
+              <EnemySprite kind="bat" size={115} />
+            </div>
+            <div className="hero-badge">Small robot. Big crew energy.</div>
+          </div>
+        </section>
+        <footer className="how-strip">
+          <span>
+            <b>01</b> Open the arena on one screen
+          </span>
+          <span>
+            <b>02</b> Connect three phones
+          </span>
+          <span>
+            <b>03</b> Pick your stations & play
+          </span>
+        </footer>
       </div>
-
-      {/* HOST + JOIN */}
-      <div style={{
-        position: 'absolute', top: '46%', left: '50%', transform: 'translateX(-50%)',
-        display: 'flex', gap: 36, zIndex: 5,
-      }}>
-        <BigButton to="/display?new=1" color={PR.color.flame} sub="this device becomes the arena">HOST</BigButton>
-        <BigButton to="/play" color={PR.color.sun} sub="phone joins an existing room">JOIN</BigButton>
-      </div>
-
-      {/* mascots */}
-      <div style={{
-        position: 'absolute', left: '12%', top: '52%',
-        animation: 'pr-bob-lg 2.4s ease-in-out infinite',
-        pointerEvents: 'none', zIndex: 3,
-      }}>
-        <Robot size={170} />
-      </div>
-      <div style={{
-        position: 'absolute', right: '11%', top: '58%',
-        animation: 'pr-jiggle 1.6s ease-in-out infinite',
-        transformOrigin: 'bottom center',
-        pointerEvents: 'none', zIndex: 3,
-      }}>
-        <EnemySprite kind="slime" size={120} />
-      </div>
-      <div style={{
-        position: 'absolute', right: '22%', top: '66%',
-        animation: 'pr-hop 1.4s ease-in-out infinite',
-        transformOrigin: 'bottom center',
-        pointerEvents: 'none', zIndex: 3,
-      }}>
-        <EnemySprite kind="bunny" size={100} />
-      </div>
-
-    </div>
-  );
-}
-
-function BigButton({ to, color, sub, children }: {
-  to: string; color: string; sub: string; children: React.ReactNode;
-}) {
-  return (
-    <Link to={to} className="pr-bevel-btn" style={{
-      ...bevelButtonStyle({ bg: color, size: 'lg' }),
-      minWidth: 240,
-    }}>
-      <div style={{
-        font: `400 60px ${PR.font.display}`, letterSpacing: 4, lineHeight: 1,
-      }}>{children}</div>
-      <div style={{
-        font: `700 11px ${PR.font.sans}`, letterSpacing: 2,
-        marginTop: 6, opacity: 0.7,
-      }}>{sub}</div>
-    </Link>
+    </main>
   );
 }

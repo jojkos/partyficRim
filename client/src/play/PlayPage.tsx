@@ -1,256 +1,230 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { createSocket } from '../socket.js';
-import type { PhoneSnapshot } from '@partyficrim/shared';
-import { PhoneLobby } from './PhoneLobby.js';
-import { PhoneGame } from './PhoneGame.js';
-import { Robot } from '../display/Sprites.js';
-import { PR, Wordmark, bevelButtonStyle } from '../ui/theme.js';
-import { usePhoneAudio } from '../audio/usePhoneAudio.js';
-import { MuteButton } from '../audio/MuteButton.js';
-import { audio } from '../audio/engine.js';
-
-const SESSION_KEY = 'partyficrim.session';
-
-interface StoredSession {
+import { useEffect, useState } from "react";
+import type { PhoneSnapshot } from "@partyficrim/shared";
+import { Link } from "react-router-dom";
+import { useRoomSocket } from "../socket.js";
+import { PhoneLobby } from "./PhoneLobby.js";
+import { PhoneGame } from "./PhoneGame.js";
+import { Robot } from "../display/Sprites.js";
+import { usePhoneAudio } from "../audio/usePhoneAudio.js";
+import { MuteButton } from "../audio/MuteButton.js";
+import { useConnection } from "../net/useConnection.js";
+const KEY = "partyficrim.session";
+interface Session {
   roomCode: string;
   sessionId: string;
 }
-
-function loadSession(): StoredSession | null {
+function session(): Session | null {
   try {
-    const raw = localStorage.getItem(SESSION_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<StoredSession>;
-    if (typeof parsed.roomCode === 'string' && typeof parsed.sessionId === 'string') {
-      return { roomCode: parsed.roomCode, sessionId: parsed.sessionId };
-    }
-  } catch { /* ignore corrupt storage */ }
-  return null;
+    const s = JSON.parse(localStorage.getItem(KEY) ?? "null");
+    return typeof s?.roomCode === "string" && typeof s?.sessionId === "string"
+      ? s
+      : null;
+  } catch {
+    return null;
+  }
 }
-
-function saveSession(session: StoredSession): void {
-  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+function save(s: Session | null) {
+  try {
+    s
+      ? localStorage.setItem(KEY, JSON.stringify(s))
+      : localStorage.removeItem(KEY);
+  } catch {
+    /* Storage may be unavailable in private mode. */
+  }
 }
-
-function clearSession(): void {
-  localStorage.removeItem(SESSION_KEY);
-}
-
+const messages: Record<string, string> = {
+  no_such_room: "That room has ended. Ask the host for the new code.",
+  room_full: "This room already has three pilots.",
+  timeout: "The arena did not respond. Please try again.",
+  invalid_payload: "Enter the four letters shown on the arena.",
+};
 export function PlayPage() {
-  const socket = useMemo(() => createSocket(), []);
-
-  // URL room param takes precedence; fall back to stored room.
-  const params = new URLSearchParams(window.location.search);
-  const urlRoom = (params.get('room') ?? '').toUpperCase();
-  const stored = loadSession();
-  const initialRoom = urlRoom.length === 4 ? urlRoom : (stored?.roomCode ?? '');
-
-  const [roomCode, setRoomCode] = useState(initialRoom);
-  const [error, setError] = useState<string | null>(null);
-  const [snap, setSnap] = useState<PhoneSnapshot | null>(null);
-
-  // StrictMode-safe join guard. Tracks the room we have already issued a
-  // phone:join for (or are in-flight on) so React's double-effect doesn't
-  // create a duplicate player record. Cleared on leave/room:ended.
-  const joinedForRef = useRef<string | null>(null);
-
+  const socket = useRoomSocket("phone"),
+    online = useConnection(socket);
+  const [roomCode, setRoomCode] = useState(
+    () =>
+      new URLSearchParams(location.search).get("room")?.toUpperCase() ||
+      session()?.roomCode ||
+      "",
+  );
+  const [code, setCode] = useState(roomCode),
+    [attempt, setAttempt] = useState(0),
+    [ready, setReady] = useState(false),
+    [snap, setSnap] = useState<PhoneSnapshot | null>(null),
+    [error, setError] = useState<string | null>(null),
+    [notice, setNotice] = useState("");
   useEffect(() => {
-    if (!roomCode || roomCode.length !== 4) return;
-    if (joinedForRef.current === roomCode) return; // already joining/joined
-    joinedForRef.current = roomCode;
-    setSnap(null);
-    const session = loadSession();
-    const sessionId = session?.roomCode === roomCode ? session.sessionId : undefined;
-
-    socket.emit('phone:join', { roomCode, sessionId }, (res) => {
-      if (joinedForRef.current !== roomCode) return; // user left mid-flight
-      if (!res.ok) {
-        // Drop the guard so the user can retry by re-submitting the form.
-        joinedForRef.current = null;
-        clearSession();
-        setError(res.error);
-        return;
-      }
-      saveSession({ roomCode, sessionId: res.sessionId });
+    if (!/^[A-Z]{4}$/.test(roomCode)) return;
+    let active = true,
+      sequence = -1;
+    const join = async () => {
+      if (!socket.connected) return;
+      setReady(false);
       setError(null);
-    });
-  }, [socket, roomCode]);
-
-  // If the socket itself drops & reconnects (network blip), re-issue join
-  // with our sessionId so the server can resume us under the new socket.id.
-  useEffect(() => {
-    const onReconnect = () => {
-      const session = loadSession();
-      if (!session || session.roomCode !== roomCode || !roomCode) return;
-      socket.emit('phone:join', { roomCode, sessionId: session.sessionId }, (res) => {
+      const saved = session();
+      try {
+        const res = await socket.timeout(4500).emitWithAck("phone:join", {
+          roomCode,
+          sessionId: saved?.roomCode === roomCode ? saved.sessionId : undefined,
+        });
+        if (!active) return;
         if (!res.ok) {
-          joinedForRef.current = null;
-          clearSession();
-          setError(res.error);
+          save(null);
+          setError(messages[res.error] ?? "Could not join this room.");
+          return;
         }
-      });
-    };
-    socket.on('connect', onReconnect);
-    return () => { socket.off('connect', onReconnect); };
-  }, [socket, roomCode]);
-
-  useEffect(() => {
-    let lastPhase = '';
-    const h = (s: PhoneSnapshot) => {
-      if (s.phase !== lastPhase) {
-        console.log(`[phone] phase ${lastPhase || '(none)'} -> ${s.phase}`);
-        lastPhase = s.phase;
+        save({ roomCode, sessionId: res.sessionId });
+        setReady(true);
+      } catch {
+        if (active) setError(messages.timeout!);
       }
+    };
+    const state = (s: PhoneSnapshot) => {
+      if (s.roomCode !== roomCode || s.sequence < sequence) return;
+      sequence = s.sequence;
       setSnap(s);
     };
-    socket.on('phone:state', h);
-    return () => { socket.off('phone:state', h); };
-  }, [socket]);
-
-  const leaveRoom = () => {
-    joinedForRef.current = null;
-    socket.emit('phone:leave', () => {
-      clearSession();
-      window.history.replaceState({}, '', '/play');
-      setRoomCode('');
-      setSnap(null);
-      setError(null);
-    });
-  };
-
-  useEffect(() => {
-    const onEnded = () => {
-      console.log('[phone] room:ended received');
-      joinedForRef.current = null;
-      clearSession();
-      // Strip ?room= so a refresh doesn't try to rejoin the dead room.
-      window.history.replaceState({}, '', '/play');
-      setRoomCode('');
-      setSnap(null);
-      setError(null);
+    const disconnected = () => {
+      sequence = -1;
+      setReady(false);
     };
-    socket.on('room:ended', onEnded);
-    return () => { socket.off('room:ended', onEnded); };
-  }, [socket]);
-
+    const ended = () => {
+      save(null);
+      setSnap(null);
+      setReady(false);
+      setRoomCode("");
+      setCode("");
+      setNotice("The host ended this room. Enter a new code to join again.");
+      history.replaceState({}, "", "/play");
+    };
+    const replaced = () => {
+      setReady(false);
+      setSnap(null);
+      setRoomCode("");
+      setCode("");
+      setNotice(
+        "Your station opened in another tab. Use that tab, or enter a different room code here.",
+      );
+      history.replaceState({}, "", "/play");
+    };
+    socket.on("phone:session_replaced", replaced);
+    socket.on("phone:state", state);
+    socket.on("connect", join);
+    socket.on("disconnect", disconnected);
+    socket.on("room:ended", ended);
+    void join();
+    return () => {
+      active = false;
+      socket.off("phone:session_replaced", replaced);
+      socket.off("phone:state", state);
+      socket.off("connect", join);
+      socket.off("disconnect", disconnected);
+      socket.off("room:ended", ended);
+    };
+  }, [socket, roomCode, attempt]);
+  const leave = () => {
+    if (socket.connected) {
+      socket.volatile.emit("phone:input", { dx: 0, dy: 0 });
+      socket.timeout(2500).emit("phone:leave", () => {});
+    }
+    save(null);
+    setRoomCode("");
+    setCode("");
+    setSnap(null);
+    setError(null);
+    setReady(false);
+    history.replaceState({}, "", "/play");
+  };
   usePhoneAudio(snap);
-
-  // Audible feedback for connection errors (room_full etc.).
-  useEffect(() => {
-    if (error) audio.play('ui.error');
-  }, [error]);
-
-  if (!roomCode || roomCode.length !== 4 || error) {
+  if (!/^[A-Z]{4}$/.test(roomCode) || error)
     return (
-      <div style={{
-        position: 'relative', width: '100%', height: '100%', overflow: 'hidden',
-        background: `linear-gradient(180deg, #2d1b4d 0%, ${PR.color.bg} 100%)`,
-        fontFamily: PR.font.sans, color: PR.color.paper,
-      }}>
-        <form
-          style={{
-            position: 'absolute', inset: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            gap: 36, padding: 28,
-          }}
-          onSubmit={(e) => {
-            e.preventDefault();
-            const v = (new FormData(e.currentTarget).get('code') as string).toUpperCase();
-            if (v.length === 4) {
-              // Reset the join guard so the effect re-fires even when the
-              // resubmitted code equals the previous one (the previous attempt
-              // failed and we want to retry).
-              joinedForRef.current = null;
-              setError(null);
+      <main className="page">
+        <header className="topbar">
+          <Link className="wordmark" to="/">
+            partyfic<span>RIM</span>
+          </Link>
+          <MuteButton />
+        </header>
+        <section className="join-shell">
+          <div className="join-intro">
+            <Robot size={140} />
+            <h1>Your crew is waiting.</h1>
+            <p className="muted">Enter the code on the arena screen.</p>
+          </div>
+          <form
+            className="panel join-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const next = code.toUpperCase().replace(/[^A-Z]/g, "");
+              if (next.length !== 4) return;
+              setRoomCode(next);
+              setAttempt((a) => a + 1);
               setSnap(null);
-              if (v === roomCode) {
-                // Same code — state-set is a no-op; force the effect by
-                // clearing then re-setting on next tick.
-                setRoomCode('');
-                queueMicrotask(() => setRoomCode(v));
-              } else {
-                setRoomCode(v);
-              }
-            }
-          }}
-        >
-          <div style={{ flex: 1, maxWidth: 320 }}>
-            <Wordmark size={30} />
-            <div style={{
-              font: `700 11px ${PR.font.sans}`, letterSpacing: 3,
-              color: PR.color.sun, marginTop: 18, marginBottom: 10,
-            }}>
-              ENTER ROOM CODE
-            </div>
-            {error && (
-              <div style={{
-                marginBottom: 12, color: PR.color.cherry,
-                font: `700 11px ${PR.font.sans}`, letterSpacing: 1,
-              }}>
-                Couldn't join {roomCode}: {error}.
-              </div>
-            )}
+              setError(null);
+              setNotice("");
+              history.replaceState({}, "", `/play?room=${next}`);
+            }}
+          >
+            <label htmlFor="room-code">Room code</label>
             <input
-              name="code"
+              id="room-code"
+              value={code}
+              onChange={(e) =>
+                setCode(
+                  e.target.value
+                    .toUpperCase()
+                    .replace(/[^A-Z]/g, "")
+                    .slice(0, 4),
+                )
+              }
               maxLength={4}
               placeholder="CHIP"
               autoCapitalize="characters"
               autoComplete="off"
               spellCheck={false}
-              style={{
-                width: '100%', boxSizing: 'border-box',
-                background: PR.color.cardCream, color: PR.color.ink,
-                border: `3px solid ${PR.color.ink}`, borderRadius: PR.r.md,
-                boxShadow: PR.shadow(3, 4, PR.color.ink),
-                padding: '14px 18px',
-                font: `400 40px ${PR.font.display}`, letterSpacing: 12, lineHeight: 1,
-                textAlign: 'center', outline: 'none', textTransform: 'uppercase',
-              }}
+              required
+              minLength={4}
             />
-            <button
-              type="submit"
-              onClick={() => audio.play('ui.tap')}
-              className="pr-bevel-btn"
-              style={{
-                ...bevelButtonStyle({ bg: PR.color.flame, size: 'md' }),
-                marginTop: 18, width: '100%', display: 'block',
-                font: `400 24px ${PR.font.display}`, letterSpacing: 3,
-                padding: '10px 0',
-                border: `3px solid ${PR.color.ink}`,
-              }}
-            >
-              JOIN GAME
+            {error && (
+              <p className="error-note" role="alert">
+                {error}
+              </p>
+            )}
+            {notice && <p className="muted">{notice}</p>}
+            <button className="primary-button" disabled={code.length !== 4}>
+              Join the crew →
             </button>
-            <div style={{
-              marginTop: 12,
-              font: `500 11px ${PR.font.sans}`, opacity: 0.6, textAlign: 'center',
-            }}>
-              or scan the QR on the host screen
-            </div>
-          </div>
-          <div style={{
-            flex: '0 0 auto',
-            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
-          }}>
-            <div style={{ animation: 'pr-bob-lg 2.4s ease-in-out infinite' }}>
-              <Robot size={140} />
-            </div>
-            <div style={{
-              font: `700 10px ${PR.font.sans}`, letterSpacing: 2, color: PR.color.sun,
-            }}>YOUR PILOT AWAITS</div>
-          </div>
-        </form>
-        <MuteButton style={{ position: 'absolute', top: 10, right: 12 }} />
-      </div>
+            <p className="muted" style={{ fontSize: 12, textAlign: "center" }}>
+              Or scan the QR code on the arena.
+            </p>
+          </form>
+        </section>
+      </main>
     );
-  }
-
-  // Single source of truth: the server snapshot. No local role mirror.
-  const snapshotRole = snap?.role ?? null;
-
-  return snap?.phase === 'lobby' || snap?.phase === 'countdown' || snap === null
-    ? <PhoneLobby socket={socket} role={snapshotRole} roomCode={roomCode} snap={snap} onLeave={leaveRoom} />
-    : snapshotRole
-      ? <PhoneGame socket={socket} role={snapshotRole} roomCode={roomCode} onLeave={leaveRoom} />
-      : <PhoneLobby socket={socket} role={snapshotRole} roomCode={roomCode} snap={snap} onLeave={leaveRoom} />;
+  if (
+    !snap ||
+    snap.phase === "lobby" ||
+    snap.phase === "countdown" ||
+    !snap.role
+  )
+    return (
+      <PhoneLobby
+        socket={socket}
+        role={snap?.role ?? null}
+        roomCode={roomCode}
+        snap={snap}
+        onLeave={leave}
+        ready={online && ready}
+      />
+    );
+  return (
+    <PhoneGame
+      socket={socket}
+      role={snap.role}
+      roomCode={roomCode}
+      onLeave={leave}
+      snap={snap}
+      ready={online && ready}
+    />
+  );
 }

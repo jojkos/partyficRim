@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type {
   AttackKind,
   AttackState,
@@ -13,11 +14,13 @@ import type {
   Rect,
   Role,
   Vec2,
-} from '@partyficrim/shared';
+} from "@partyficrim/shared";
 
 export interface RoomPlayer extends PlayerState {
   sessionId: string;
   lastInput: Vec2;
+  lastInputAt?: number;
+  disconnectedAt?: number;
   lastButtonAt: number;
   inventory: CoreType[];
   selectedCores: number[];
@@ -28,6 +31,11 @@ export interface RoomPlayer extends PlayerState {
 
 export interface Room {
   code: string;
+  hostToken: string;
+  displaySockets: Set<string>;
+  lastOccupiedAt: number;
+  sequence: number;
+  elapsedMs: number;
   phase: Phase;
   countdownMsRemaining: number;
   pauseStartedAt: number | null;
@@ -58,11 +66,12 @@ export function pushFeed(room: Room, e: FeedEvent): void {
   }
 }
 
-const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // omit I/O for readability
+const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ"; // omit I/O for readability
 
 function randomCode(): string {
-  let s = '';
-  for (let i = 0; i < 4; i++) s += ALPHABET[Math.floor(Math.random() * ALPHABET.length)];
+  let s = "";
+  for (let i = 0; i < 4; i++)
+    s += ALPHABET[Math.floor(Math.random() * ALPHABET.length)];
   return s;
 }
 
@@ -71,10 +80,17 @@ export class RoomManager {
 
   createRoom(): Room {
     let code: string;
-    do { code = randomCode(); } while (this.rooms.has(code));
+    do {
+      code = randomCode();
+    } while (this.rooms.has(code));
     const room: Room = {
       code,
-      phase: 'lobby',
+      hostToken: randomUUID(),
+      displaySockets: new Set(),
+      lastOccupiedAt: Date.now(),
+      sequence: 0,
+      elapsedMs: 0,
+      phase: "lobby",
       countdownMsRemaining: 0,
       pauseStartedAt: null,
       robot: { x: 400, y: 300 },
@@ -110,6 +126,22 @@ export class RoomManager {
     this.rooms.delete(code);
   }
 
+  prune(now = Date.now(), ttlMs = 15 * 60_000): string[] {
+    const expired: string[] = [];
+    for (const room of this.rooms.values()) {
+      if (
+        room.displaySockets.size ||
+        [...room.players.values()].some((p) => p.connected)
+      ) {
+        room.lastOccupiedAt = now;
+      } else if (now - room.lastOccupiedAt >= ttlMs) {
+        this.rooms.delete(room.code);
+        expired.push(room.code);
+      }
+    }
+    return expired;
+  }
+
   iterRooms(): IterableIterator<Room> {
     return this.rooms.values();
   }
@@ -117,9 +149,17 @@ export class RoomManager {
 
 export function roleClaims(room: Room): Record<Role, string | null> {
   return {
-    defense: [...room.players.values()].find((p) => p.connected && p.role === 'defense')?.id ?? null,
-    repair: [...room.players.values()].find((p) => p.connected && p.role === 'repair')?.id ?? null,
-    weapons: [...room.players.values()].find((p) => p.connected && p.role === 'weapons')?.id ?? null,
+    defense:
+      [...room.players.values()].find(
+        (p) => p.connected && p.role === "defense",
+      )?.id ?? null,
+    repair:
+      [...room.players.values()].find((p) => p.connected && p.role === "repair")
+        ?.id ?? null,
+    weapons:
+      [...room.players.values()].find(
+        (p) => p.connected && p.role === "weapons",
+      )?.id ?? null,
   };
 }
 
@@ -127,12 +167,18 @@ export function playerForRole(room: Room, role: Role): RoomPlayer | undefined {
   return [...room.players.values()].find((p) => p.connected && p.role === role);
 }
 
-export function addAttack(room: Room, kind: AttackKind, quadrant: Quadrant, colors: string[], pos?: Vec2): void {
+export function addAttack(
+  room: Room,
+  kind: AttackKind,
+  quadrant: Quadrant,
+  colors: string[],
+  pos?: Vec2,
+): void {
   room.attacks.push({
     id: `${Date.now()}-${Math.random()}`,
     kind,
     quadrant,
-    ttlMsRemaining: kind === 'bomb' ? 900 : 450,
+    ttlMsRemaining: kind === "bomb" ? 900 : 450,
     colors,
     pos: pos ? { x: pos.x, y: pos.y } : undefined,
   });
